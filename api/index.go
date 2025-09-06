@@ -8,9 +8,10 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 	"sync"
 
+	// CORRECTED: Added the main pgx package import for types like pgx.Row
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -61,9 +62,9 @@ type GeoPoint struct {
 
 // Landmark corresponds to a single landmark object.
 type Landmark struct {
-	LandmarkName      string   `json:"landmarkName"`
+	LandmarkName       string   `json:"landmarkName"`
 	LandmarkCordinates GeoPoint `json:"landmarkCordinates"`
-	LandmarkPinSVG  string   `json:"landmarkPinSVG"`
+	LandmarkPinSVG     string   `json:"landmarkPinSVG"`
 }
 
 // Location is the Go equivalent of the C++ Location struct.
@@ -114,6 +115,8 @@ func NewAppService(db *pgxpool.Pool) *AppService {
 
 // rowToLocation converts a database row into a Go Location struct.
 // It handles parsing the JSON strings from the 'boards', 'coordinates', and 'landmarks' columns.
+// CORRECTED: The type pgx.Row is now defined because of the new import.
+// pgx.Row is an interface that both a single row result and an iterator over multiple rows satisfy.
 func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 	var loc Location
 	// These string variables will temporarily hold the JSON data from the database
@@ -153,6 +156,7 @@ func (s *AppService) GetTopLocations(ctx context.Context, limit int) ([]Location
 
 	var locations []Location
 	for rows.Next() {
+		// This works because the 'rows' object satisfies the pgx.Row interface for scanning.
 		loc, err := s.rowToLocation(rows)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan location row: %w", err)
