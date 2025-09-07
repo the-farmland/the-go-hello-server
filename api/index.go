@@ -3,6 +3,8 @@ package handler
 
 import (
 	"context"
+	// CORRECTED: Import the standard 'database/sql' package for nullable types
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,17 +12,12 @@ import (
 	"os"
 	"sync"
 
-	// CORRECTED: Added the main pgx package import for types like pgx.Row
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ====================================================================================
 // Global Database Connection Pool
-//
-// In a serverless environment, global variables are preserved between invocations
-// of the same function instance. We use a sync.Once to ensure the database
-// connection pool is initialized only once per instance, improving performance.
 // ====================================================================================
 
 var (
@@ -28,14 +25,10 @@ var (
 	once   sync.Once
 )
 
-// initDB establishes the database connection pool. It fetches the connection string
-// from an environment variable for security and flexibility.
 func initDB() {
 	once.Do(func() {
 		conninfo := os.Getenv("DATABASE_URL")
 		if conninfo == "" {
-			// Fallback to the hardcoded string from the C++ code if the env var is not set.
-			// IMPORTANT: It is strongly recommended to use environment variables in production.
 			conninfo = "postgresql://postgres.vxqsqaysrpxliofqxjyu:the-plus-maps-password@aws-0-us-east-2.pooler.supabase.com:5432/postgres?sslmode=require"
 		}
 
@@ -48,28 +41,20 @@ func initDB() {
 }
 
 // ====================================================================================
-// Data Structs (Mirrors C++ structs and TypeScript interfaces)
-//
-// These structs use `json` tags to control how they are serialized into JSON,
-// ensuring the API output matches the frontend's expectations.
+// Data Structs
 // ====================================================================================
 
-// GeoPoint corresponds to the GeoJSON-style point.
 type GeoPoint struct {
-	Type        string    `json:"type"`        // e.g., "Point"
-	Coordinates []float64 `json:"coordinates"` // [longitude, latitude]
+	Type        string    `json:"type"`
+	Coordinates []float64 `json:"coordinates"`
 }
 
-// Landmark corresponds to a single landmark object.
 type Landmark struct {
 	LandmarkName       string   `json:"landmarkName"`
 	LandmarkCordinates GeoPoint `json:"landmarkCordinates"`
 	LandmarkPinSVG     string   `json:"landmarkPinSVG"`
 }
 
-// Location is the Go equivalent of the C++ Location struct.
-// Note that fields that are JSON objects in the final output (boards, coordinates, landmarks)
-// are represented by their corresponding Go struct types.
 type Location struct {
 	ID                  string      `json:"id"`
 	Name                string      `json:"name"`
@@ -83,70 +68,93 @@ type Location struct {
 	MainBackgroundImage string      `json:"main_background_image"`
 	MapFullAddress      string      `json:"map_full_address"`
 	MapPngLink          string      `json:"map_png_link"`
-	Boards              interface{} `json:"boards"`      // Use interface{} to hold the parsed JSON
-	Coordinates         *GeoPoint   `json:"coordinates"` // Pointer to allow for null
-	Landmarks           []Landmark  `json:"landmarks"`   // Slice to allow for null/empty array
+	Boards              interface{} `json:"boards"`
+	Coordinates         *GeoPoint   `json:"coordinates"`
+	Landmarks           []Landmark  `json:"landmarks"`
 }
 
-// Chart is the Go equivalent of the C++ Chart struct.
 type Chart struct {
 	ID         int         `json:"id"`
 	LocationID string      `json:"location_id"`
 	ChartType  string      `json:"chart_type"`
 	Title      string      `json:"title"`
-	ChartData  interface{} `json:"chart_data"` // Use interface{} to hold the parsed JSON
+	ChartData  interface{} `json:"chart_data"`
 }
 
 // ====================================================================================
-// Application Service (Mirrors C++ AppService)
-//
-// This struct holds the business logic for interacting with the database.
-// Methods are attached to this struct, similar to C++ class methods.
-//====================================================================================
+// Application Service
+// ====================================================================================
 
 type AppService struct {
 	db *pgxpool.Pool
 }
 
-// NewAppService creates a new instance of our application service.
 func NewAppService(db *pgxpool.Pool) *AppService {
 	return &AppService{db: db}
 }
 
-// rowToLocation converts a database row into a Go Location struct.
-// It handles parsing the JSON strings from the 'boards', 'coordinates', and 'landmarks' columns.
-// CORRECTED: The type pgx.Row is now defined because of the new import.
-// pgx.Row is an interface that both a single row result and an iterator over multiple rows satisfy.
+// CORRECTED: This function is now robust against NULL values from the database.
 func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 	var loc Location
-	// These string variables will temporarily hold the JSON data from the database
-	var boardsJSON, coordinatesJSON, landmarksJSON string
 
+	// Use nullable types for all columns that can be NULL in the database.
+	// This prevents the 'cannot scan NULL into *string' error.
+	var state, svgLink, mapMainImage, mapCoverImage, mainBgImage, mapFullAddress, mapPngLink sql.NullString
+	var rating sql.NullFloat64
+	var boardsJSON, coordinatesJSON, landmarksJSON sql.NullString
+
+	// Scan into the temporary nullable variables.
 	err := row.Scan(
-		&loc.ID, &loc.Name, &loc.Country, &loc.State, &loc.Description,
-		&loc.SvgLink, &loc.Rating, &loc.MapMainImage, &loc.MapCoverImage,
-		&loc.MainBackgroundImage, &loc.MapFullAddress, &loc.MapPngLink,
+		&loc.ID, &loc.Name, &loc.Country, &state, &loc.Description,
+		&svgLink, &rating, &mapMainImage, &mapCoverImage,
+		&mainBgImage, &mapFullAddress, &mapPngLink,
 		&boardsJSON, &coordinatesJSON, &landmarksJSON,
 	)
 	if err != nil {
 		return Location{}, err
 	}
 
-	// Safely parse the JSON strings into their respective struct fields
-	if boardsJSON != "" {
-		_ = json.Unmarshal([]byte(boardsJSON), &loc.Boards)
+	// After scanning, safely transfer the values from the nullable types to the final struct.
+	// If the value was NULL in the DB, the corresponding struct field will remain its zero value (e.g., "").
+	if state.Valid {
+		loc.State = state.String
 	}
-	if coordinatesJSON != "" {
-		_ = json.Unmarshal([]byte(coordinatesJSON), &loc.Coordinates)
+	if svgLink.Valid {
+		loc.SvgLink = svgLink.String
 	}
-	if landmarksJSON != "" {
-		_ = json.Unmarshal([]byte(landmarksJSON), &loc.Landmarks)
+	if rating.Valid {
+		loc.Rating = rating.Float64
+	}
+	if mapMainImage.Valid {
+		loc.MapMainImage = mapMainImage.String
+	}
+	if mapCoverImage.Valid {
+		loc.MapCoverImage = mapCoverImage.String
+	}
+	if mainBgImage.Valid {
+		loc.MainBackgroundImage = mainBgImage.String
+	}
+	if mapFullAddress.Valid {
+		loc.MapFullAddress = mapFullAddress.String
+	}
+	if mapPngLink.Valid {
+		loc.MapPngLink = mapPngLink.String
+	}
+
+	// Safely parse the JSON strings only if they are not NULL.
+	if boardsJSON.Valid && boardsJSON.String != "" {
+		_ = json.Unmarshal([]byte(boardsJSON.String), &loc.Boards)
+	}
+	if coordinatesJSON.Valid && coordinatesJSON.String != "" {
+		_ = json.Unmarshal([]byte(coordinatesJSON.String), &loc.Coordinates)
+	}
+	if landmarksJSON.Valid && landmarksJSON.String != "" {
+		_ = json.Unmarshal([]byte(landmarksJSON.String), &loc.Landmarks)
 	}
 
 	return loc, nil
 }
 
-// GetTopLocations fetches the top-rated locations.
 func (s *AppService) GetTopLocations(ctx context.Context, limit int) ([]Location, error) {
 	rows, err := s.db.Query(ctx, "SELECT * FROM get_top_locations($1);", limit)
 	if err != nil {
@@ -156,7 +164,6 @@ func (s *AppService) GetTopLocations(ctx context.Context, limit int) ([]Location
 
 	var locations []Location
 	for rows.Next() {
-		// This works because the 'rows' object satisfies the pgx.Row interface for scanning.
 		loc, err := s.rowToLocation(rows)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan location row: %w", err)
@@ -166,17 +173,16 @@ func (s *AppService) GetTopLocations(ctx context.Context, limit int) ([]Location
 	return locations, nil
 }
 
-// GetLocationByID fetches a single location by its ID.
 func (s *AppService) GetLocationByID(ctx context.Context, id string) (Location, error) {
 	row := s.db.QueryRow(ctx, "SELECT * FROM get_location_by_id($1);", id)
 	loc, err := s.rowToLocation(row)
 	if err != nil {
+		// This error message is what you saw in the browser.
 		return Location{}, fmt.Errorf("location not found or scan failed: %w", err)
 	}
 	return loc, nil
 }
 
-// SearchLocations performs a text-based search for locations.
 func (s *AppService) SearchLocations(ctx context.Context, query string) ([]Location, error) {
 	rows, err := s.db.Query(ctx, "SELECT * FROM search_locations($1);", query)
 	if err != nil {
@@ -195,7 +201,6 @@ func (s *AppService) SearchLocations(ctx context.Context, query string) ([]Locat
 	return locations, nil
 }
 
-// GetChartsForLocation fetches all charts associated with a location.
 func (s *AppService) GetChartsForLocation(ctx context.Context, locationID string) ([]Chart, error) {
 	rows, err := s.db.Query(ctx, "SELECT id, location_id, chart_type, title, chart_data FROM charts WHERE location_id = $1 ORDER BY id;", locationID)
 	if err != nil {
@@ -206,12 +211,12 @@ func (s *AppService) GetChartsForLocation(ctx context.Context, locationID string
 	var charts []Chart
 	for rows.Next() {
 		var chart Chart
-		var chartDataJSON string
+		var chartDataJSON sql.NullString // Also handle null chart_data
 		if err := rows.Scan(&chart.ID, &chart.LocationID, &chart.ChartType, &chart.Title, &chartDataJSON); err != nil {
 			return nil, fmt.Errorf("failed to scan chart row: %w", err)
 		}
-		if chartDataJSON != "" {
-			_ = json.Unmarshal([]byte(chartDataJSON), &chart.ChartData)
+		if chartDataJSON.Valid && chartDataJSON.String != "" {
+			_ = json.Unmarshal([]byte(chartDataJSON.String), &chart.ChartData)
 		}
 		charts = append(charts, chart)
 	}
@@ -219,7 +224,7 @@ func (s *AppService) GetChartsForLocation(ctx context.Context, locationID string
 }
 
 // ====================================================================================
-// User Logging and Rate Limiting Helpers (Mirrors C++ helpers)
+// User Logging and Rate Limiting Helpers
 // ====================================================================================
 
 func logUserRequest(ctx context.Context, uid string) {
@@ -240,7 +245,6 @@ func isUserBlocked(ctx context.Context, uid string) (bool, error) {
 	var blocked bool
 	err := dbpool.QueryRow(ctx, "SELECT is_user_blocked($1);", uid).Scan(&blocked)
 	if err != nil {
-		// If the function doesn't return a row, assume not blocked but log the error.
 		log.Printf("Error checking if user is blocked for UID %s: %v", uid, err)
 		return false, nil
 	}
@@ -251,35 +255,28 @@ func isUserBlocked(ctx context.Context, uid string) (bool, error) {
 // JSON-RPC Handling and Dispatcher
 // ====================================================================================
 
-// RpcRequest defines the structure of an incoming JSON-RPC request.
-// Using json.RawMessage for Params allows us to delay parsing until we know the method.
 type RpcRequest struct {
 	Method string          `json:"method"`
 	Params json.RawMessage `json:"params"`
 }
 
-// GenericParams is used to extract the 'userid' before full param parsing.
 type GenericParams struct {
 	UserID string `json:"userid"`
 }
 
-// writeJSONResponse is a helper to standardize JSON responses.
 func writeJSONResponse(w http.ResponseWriter, statusCode int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(data)
 }
 
-// handleRpcRequest is the core dispatcher, equivalent to the C++ RpcDispatcher.
 func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
-	// Decode the generic RPC request to find the method and params.
 	var req RpcRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "Invalid JSON request"})
 		return
 	}
 
-	// Extract userid for logging and rate limiting.
 	var genericParams GenericParams
 	_ = json.Unmarshal(req.Params, &genericParams)
 	uid := genericParams.UserID
@@ -287,11 +284,9 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	service := NewAppService(dbpool)
 
-	// User blocking logic
 	if uid != "" {
 		blocked, err := isUserBlocked(ctx, uid)
 		if err != nil {
-			// Log the error but proceed; fail open.
 			log.Printf("Could not check user block status: %v", err)
 		}
 		if blocked {
@@ -299,14 +294,12 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		logUserRequest(ctx, uid)
-		// Defer logging the response until the function returns.
 		defer logUserResponse(ctx, uid)
 	}
 
 	var resultData interface{}
 	var processingError error
 
-	// Dispatch to the correct method handler.
 	switch req.Method {
 	case "getTopLocations":
 		var params struct {
@@ -314,7 +307,7 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.Unmarshal(req.Params, &params)
 		if params.Limit == 0 {
-			params.Limit = 10 // Default limit
+			params.Limit = 10
 		}
 		resultData, processingError = service.GetTopLocations(ctx, params.Limit)
 
@@ -352,7 +345,6 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 		processingError = fmt.Errorf("method not found: %s", req.Method)
 	}
 
-	// Send the final response.
 	if processingError != nil {
 		writeJSONResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": processingError.Error()})
 		return
@@ -363,27 +355,20 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 
 // ====================================================================================
 // Main Vercel Handler
-//
-// This is the single entry point for all requests to the serverless function.
-// It sets CORS headers and routes requests to the appropriate handler based on the path.
 // ====================================================================================
 
 func Handler(w http.ResponseWriter, r *http.Request) {
-	// Initialize the database connection pool on the first request.
 	initDB()
 
-	// Set CORS headers for all responses. This is equivalent to the Drogon post-handling advice.
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
 
-	// Handle CORS preflight requests.
 	if r.Method == "OPTIONS" {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	// Simple path-based routing.
 	switch r.URL.Path {
 	case "/health":
 		w.WriteHeader(http.StatusOK)
