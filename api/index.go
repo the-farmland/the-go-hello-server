@@ -3,7 +3,6 @@ package handler
 
 import (
 	"context"
-	// CORRECTED: Import the standard 'database/sql' package for nullable types
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -53,24 +52,51 @@ type Landmark struct {
 	LandmarkName       string   `json:"landmarkName"`
 	LandmarkCordinates GeoPoint `json:"landmarkCordinates"`
 	LandmarkPinSVG     string   `json:"landmarkPinSVG"`
+	Type               string   `json:"type,omitempty"`
+}
+
+type BusinessItem struct {
+	LandmarkName       string   `json:"landmarkName"`
+	LandmarkCordinates GeoPoint `json:"landmarkCordinates"`
+	LandmarkPinSVG     string   `json:"landmarkPinSVG"`
+	Type               string   `json:"type"`
+}
+
+type Sublocation struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Info        string    `json:"info"`
+	Coordinates *GeoPoint `json:"coordinates"`
+	SvgPin      string    `json:"svgpin"`
+}
+
+type SublocationsData struct {
+	CurrentSublocation *Sublocation  `json:"current_sublocation,omitempty"`
+	AllSublocations    []Sublocation `json:"all_sublocations,omitempty"`
 }
 
 type Location struct {
-	ID                  string      `json:"id"`
-	Name                string      `json:"name"`
-	Country             string      `json:"country"`
-	State               string      `json:"state"`
-	Description         string      `json:"description"`
-	SvgLink             string      `json:"svg_link"`
-	Rating              float64     `json:"rating"`
-	MapMainImage        string      `json:"map_main_image"`
-	MapCoverImage       string      `json:"map_cover_image"`
-	MainBackgroundImage string      `json:"main_background_image"`
-	MapFullAddress      string      `json:"map_full_address"`
-	MapPngLink          string      `json:"map_png_link"`
-	Boards              interface{} `json:"boards"`
-	Coordinates         *GeoPoint   `json:"coordinates"`
-	Landmarks           []Landmark  `json:"landmarks"`
+	ID                  string            `json:"id"`
+	Name                string            `json:"name"`
+	Country             string            `json:"country"`
+	State               string            `json:"state"`
+	Description         string            `json:"description"`
+	SvgLink             string            `json:"svg_link"`
+	Rating              float64           `json:"rating"`
+	MapMainImage        string            `json:"map_main_image"`
+	MapCoverImage       string            `json:"map_cover_image"`
+	MainBackgroundImage string            `json:"main_background_image"`
+	MapFullAddress      string            `json:"map_full_address"`
+	MapPngLink          string            `json:"map_png_link"`
+	Boards              interface{}       `json:"boards"`
+	Coordinates         *GeoPoint         `json:"coordinates"`
+	Landmarks           []Landmark        `json:"landmarks"`
+	ParentLocationID    string            `json:"parent_location_id"`
+	Business            []BusinessItem    `json:"business"`
+	Hospitality         []BusinessItem    `json:"hospitality"`
+	Events              []BusinessItem    `json:"events"`
+	PSA                 []BusinessItem    `json:"psa"`
+	Sublocations        *SublocationsData `json:"sublocations,omitempty"`
 }
 
 type Chart struct {
@@ -93,29 +119,25 @@ func NewAppService(db *pgxpool.Pool) *AppService {
 	return &AppService{db: db}
 }
 
-// CORRECTED: This function is now robust against NULL values from the database.
 func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 	var loc Location
 
-	// Use nullable types for all columns that can be NULL in the database.
-	// This prevents the 'cannot scan NULL into *string' error.
-	var state, svgLink, mapMainImage, mapCoverImage, mainBgImage, mapFullAddress, mapPngLink sql.NullString
+	var state, svgLink, mapMainImage, mapCoverImage, mainBgImage, mapFullAddress, mapPngLink, parentLocationID sql.NullString
 	var rating sql.NullFloat64
-	var boardsJSON, coordinatesJSON, landmarksJSON sql.NullString
+	var boardsJSON, coordinatesJSON, landmarksJSON, businessJSON, hospitalityJSON, eventsJSON, psaJSON, sublocationsJSON sql.NullString
 
-	// Scan into the temporary nullable variables.
 	err := row.Scan(
 		&loc.ID, &loc.Name, &loc.Country, &state, &loc.Description,
 		&svgLink, &rating, &mapMainImage, &mapCoverImage,
 		&mainBgImage, &mapFullAddress, &mapPngLink,
 		&boardsJSON, &coordinatesJSON, &landmarksJSON,
+		&parentLocationID, &businessJSON, &hospitalityJSON, &eventsJSON, &psaJSON,
+		&sublocationsJSON,
 	)
 	if err != nil {
 		return Location{}, err
 	}
 
-	// After scanning, safely transfer the values from the nullable types to the final struct.
-	// If the value was NULL in the DB, the corresponding struct field will remain its zero value (e.g., "").
 	if state.Valid {
 		loc.State = state.String
 	}
@@ -140,8 +162,10 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 	if mapPngLink.Valid {
 		loc.MapPngLink = mapPngLink.String
 	}
+	if parentLocationID.Valid {
+		loc.ParentLocationID = parentLocationID.String
+	}
 
-	// Safely parse the JSON strings only if they are not NULL.
 	if boardsJSON.Valid && boardsJSON.String != "" {
 		_ = json.Unmarshal([]byte(boardsJSON.String), &loc.Boards)
 	}
@@ -150,6 +174,21 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 	}
 	if landmarksJSON.Valid && landmarksJSON.String != "" {
 		_ = json.Unmarshal([]byte(landmarksJSON.String), &loc.Landmarks)
+	}
+	if businessJSON.Valid && businessJSON.String != "" {
+		_ = json.Unmarshal([]byte(businessJSON.String), &loc.Business)
+	}
+	if hospitalityJSON.Valid && hospitalityJSON.String != "" {
+		_ = json.Unmarshal([]byte(hospitalityJSON.String), &loc.Hospitality)
+	}
+	if eventsJSON.Valid && eventsJSON.String != "" {
+		_ = json.Unmarshal([]byte(eventsJSON.String), &loc.Events)
+	}
+	if psaJSON.Valid && psaJSON.String != "" {
+		_ = json.Unmarshal([]byte(psaJSON.String), &loc.PSA)
+	}
+	if sublocationsJSON.Valid && sublocationsJSON.String != "" {
+		_ = json.Unmarshal([]byte(sublocationsJSON.String), &loc.Sublocations)
 	}
 
 	return loc, nil
@@ -177,7 +216,6 @@ func (s *AppService) GetLocationByID(ctx context.Context, id string) (Location, 
 	row := s.db.QueryRow(ctx, "SELECT * FROM get_location_by_id($1);", id)
 	loc, err := s.rowToLocation(row)
 	if err != nil {
-		// This error message is what you saw in the browser.
 		return Location{}, fmt.Errorf("location not found or scan failed: %w", err)
 	}
 	return loc, nil
@@ -211,7 +249,7 @@ func (s *AppService) GetChartsForLocation(ctx context.Context, locationID string
 	var charts []Chart
 	for rows.Next() {
 		var chart Chart
-		var chartDataJSON sql.NullString // Also handle null chart_data
+		var chartDataJSON sql.NullString
 		if err := rows.Scan(&chart.ID, &chart.LocationID, &chart.ChartType, &chart.Title, &chartDataJSON); err != nil {
 			return nil, fmt.Errorf("failed to scan chart row: %w", err)
 		}
