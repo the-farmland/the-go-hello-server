@@ -48,18 +48,14 @@ type GeoPoint struct {
 	Coordinates []float64 `json:"coordinates"`
 }
 
-type Landmark struct {
-	LandmarkName       string   `json:"landmarkName"`
-	LandmarkCordinates GeoPoint `json:"landmarkCordinates"`
-	LandmarkPinSVG     string   `json:"landmarkPinSVG"`
-	Type               string   `json:"type,omitempty"`
-}
-
-type BusinessItem struct {
-	LandmarkName       string   `json:"landmarkName"`
-	LandmarkCordinates GeoPoint `json:"landmarkCordinates"`
-	LandmarkPinSVG     string   `json:"landmarkPinSVG"`
-	Type               string   `json:"type"`
+type Pin struct {
+	Name        string   `json:"name"`
+	PinLink     string   `json:"pinLink"`
+	Coordinates GeoPoint `json:"coordinates"`
+	Type        string   `json:"type"`
+	Info        string   `json:"info,omitempty"`
+	Img         string   `json:"img,omitempty"`
+	URL         string   `json:"url,omitempty"`
 }
 
 type Sublocation struct {
@@ -90,13 +86,15 @@ type Location struct {
 	MapPngLink          string            `json:"map_png_link"`
 	Boards              interface{}       `json:"boards"`
 	Coordinates         *GeoPoint         `json:"coordinates"`
-	Landmarks           []Landmark        `json:"landmarks"`
+	Landmarks           []Pin             `json:"landmarks"`
 	ParentLocationID    string            `json:"parent_location_id"`
-	Business            []BusinessItem    `json:"business"`
-	Hospitality         []BusinessItem    `json:"hospitality"`
-	Events              []BusinessItem    `json:"events"`
-	PSA                 []BusinessItem    `json:"psa"`
+	Business            []Pin             `json:"business"`
+	Hospitality         []Pin             `json:"hospitality"`
+	Events              []Pin             `json:"events"`
+	PSA                 []Pin             `json:"psa"`
 	Sublocations        *SublocationsData `json:"sublocations,omitempty"`
+	Geojson             string            `json:"geojson,omitempty"`
+	Hotzones            []Pin             `json:"hotzones,omitempty"`
 }
 
 type Chart struct {
@@ -122,9 +120,9 @@ func NewAppService(db *pgxpool.Pool) *AppService {
 func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 	var loc Location
 
-	var state, svgLink, mapMainImage, mapCoverImage, mainBgImage, mapFullAddress, mapPngLink, parentLocationID sql.NullString
+	var state, svgLink, mapMainImage, mapCoverImage, mainBgImage, mapFullAddress, mapPngLink, parentLocationID, geojson sql.NullString
 	var rating sql.NullFloat64
-	var boardsJSON, coordinatesJSON, landmarksJSON, businessJSON, hospitalityJSON, eventsJSON, psaJSON, sublocationsJSON sql.NullString
+	var boardsJSON, coordinatesJSON, landmarksJSON, businessJSON, hospitalityJSON, eventsJSON, psaJSON, sublocationsJSON, hotzonesJSON sql.NullString
 
 	err := row.Scan(
 		&loc.ID, &loc.Name, &loc.Country, &state, &loc.Description,
@@ -132,7 +130,7 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 		&mainBgImage, &mapFullAddress, &mapPngLink,
 		&boardsJSON, &coordinatesJSON, &landmarksJSON,
 		&parentLocationID, &businessJSON, &hospitalityJSON, &eventsJSON, &psaJSON,
-		&sublocationsJSON,
+		&sublocationsJSON, &geojson, &hotzonesJSON,
 	)
 	if err != nil {
 		return Location{}, err
@@ -165,6 +163,9 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 	if parentLocationID.Valid {
 		loc.ParentLocationID = parentLocationID.String
 	}
+	if geojson.Valid {
+		loc.Geojson = geojson.String
+	}
 
 	if boardsJSON.Valid && boardsJSON.String != "" {
 		_ = json.Unmarshal([]byte(boardsJSON.String), &loc.Boards)
@@ -189,6 +190,9 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 	}
 	if sublocationsJSON.Valid && sublocationsJSON.String != "" {
 		_ = json.Unmarshal([]byte(sublocationsJSON.String), &loc.Sublocations)
+	}
+	if hotzonesJSON.Valid && hotzonesJSON.String != "" {
+		_ = json.Unmarshal([]byte(hotzonesJSON.String), &loc.Hotzones)
 	}
 
 	return loc, nil
