@@ -195,6 +195,14 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 }
 
 func (s *AppService) GetTopLocations(ctx context.Context, limit int) ([]Location, error) {
+	// Add validation
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	
 	rows, err := s.db.Query(ctx, "SELECT * FROM get_top_locations($1);", limit)
 	if err != nil {
 		return nil, fmt.Errorf("database query failed: %w", err)
@@ -205,10 +213,16 @@ func (s *AppService) GetTopLocations(ctx context.Context, limit int) ([]Location
 	for rows.Next() {
 		loc, err := s.rowToLocation(rows)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan location row: %w", err)
+			log.Printf("Warning: failed to scan location row: %v", err)
+			continue // Skip invalid rows instead of failing completely
 		}
 		locations = append(locations, loc)
 	}
+	
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+	
 	return locations, nil
 }
 
