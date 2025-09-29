@@ -58,6 +58,45 @@ type Pin struct {
 	URL         string   `json:"url,omitempty"`
 }
 
+// New GeoJSON Pin structure
+type GeoJsonPin struct {
+	Name        string   `json:"name"`
+	PinLink     string   `json:"pinLink"`
+	Coordinates GeoPoint `json:"coordinates"`
+	Type        string   `json:"type"`
+	Info        string   `json:"info,omitempty"`
+	Img         string   `json:"img,omitempty"`
+	URL         string   `json:"url,omitempty"`
+}
+
+// GeoJSON Style configuration
+type GeoJsonStyle struct {
+	StrokeWidth float64 `json:"strokeWidth,omitempty"`
+	StrokeColor string  `json:"strokeColor,omitempty"`
+	FillOpacity float64 `json:"fillOpacity,omitempty"`
+	Opacity     float64 `json:"opacity,omitempty"`
+	Weight      int     `json:"weight,omitempty"`
+	DashArray   string  `json:"dashArray,omitempty"`
+	LineCap     string  `json:"lineCap,omitempty"`
+	LineJoin    string  `json:"lineJoin,omitempty"`
+}
+
+// Enhanced GeoJSON Data structure
+type GeoJsonData struct {
+	Type        string        `json:"type"`
+	Features    []interface{} `json:"features,omitempty"`
+	Geometry    interface{}   `json:"geometry,omitempty"`
+	Properties  interface{}   `json:"properties,omitempty"`
+	// Enhanced properties
+	Subtype     string        `json:"subtype,omitempty"`
+	Title       string        `json:"title,omitempty"`
+	Info        string        `json:"info,omitempty"`
+	Fill        string        `json:"fill,omitempty"` // Color hex code or image URL
+	GeoJsonPin  *GeoJsonPin   `json:"geojsonpin,omitempty"`
+	Img         string        `json:"img,omitempty"` // For popup modal
+	Style       *GeoJsonStyle `json:"style,omitempty"`
+}
+
 type Sublocation struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
@@ -93,7 +132,7 @@ type Location struct {
 	Events              []Pin             `json:"events"`
 	PSA                 []Pin             `json:"psa"`
 	Sublocations        *SublocationsData `json:"sublocations,omitempty"`
-	Geojson             string            `json:"geojson,omitempty"`
+	Geojson             *GeoJsonData      `json:"geojson,omitempty"` // Changed to structured data
 	Hotzones            []Pin             `json:"hotzones,omitempty"`
 }
 
@@ -163,8 +202,13 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 	if parentLocationID.Valid {
 		loc.ParentLocationID = parentLocationID.String
 	}
-	if geojson.Valid {
-		loc.Geojson = geojson.String
+
+	// Parse GeoJSON with enhanced structure
+	if geojson.Valid && geojson.String != "" {
+		var geoJsonData GeoJsonData
+		if err := json.Unmarshal([]byte(geojson.String), &geoJsonData); err == nil {
+			loc.Geojson = &geoJsonData
+		}
 	}
 
 	if boardsJSON.Valid && boardsJSON.String != "" {
