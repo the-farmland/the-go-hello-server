@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"sync"
 
 	"github.com/jackc/pgx/v5"
@@ -50,14 +51,14 @@ type GeoPoint struct {
 }
 
 type Pin struct {
-	Name string   `json:"name"`
-	PinLink     string   `json:"pinLink"`
-	Lon         float64  `json:"lon"`
-	Lat         float64  `json:"lat"`
-	Type        string   `json:"type"`
-	Info        string   `json:"info,omitempty"`
-	Img         string   `json:"img,omitempty"`
-	URL         string   `json:"url,omitempty"`
+	Name    string  `json:"name"`
+	PinLink string  `json:"pinLink"`
+	Lon     float64 `json:"lon"`
+	Lat     float64 `json:"lat"`
+	Type    string  `json:"type"`
+	Info    string  `json:"info,omitempty"`
+	Img     string  `json:"img,omitempty"`
+	URL     string  `json:"url,omitempty"`
 }
 
 // New GeoJSON Pin structure
@@ -86,18 +87,18 @@ type GeoJsonStyle struct {
 
 // Enhanced GeoJSON Data structure
 type GeoJsonData struct {
-	Type        string        `json:"type"`
-	Features    []interface{} `json:"features,omitempty"`
-	Geometry    interface{}   `json:"geometry,omitempty"`
-	Properties  interface{}   `json:"properties,omitempty"`
+	Type       string        `json:"type"`
+	Features   []interface{} `json:"features,omitempty"`
+	Geometry   interface{}   `json:"geometry,omitempty"`
+	Properties interface{}   `json:"properties,omitempty"`
 	// Enhanced properties
-	Subtype     string        `json:"subtype,omitempty"`
-	Title       string        `json:"title,omitempty"`
-	Info        string        `json:"info,omitempty"`
-	Fill        string        `json:"fill,omitempty"` // Color hex code or image URL
-	GeoJsonPin  *GeoJsonPin   `json:"geojsonpin,omitempty"`
-	Img         string        `json:"img,omitempty"` // For popup modal
-	Style       *GeoJsonStyle `json:"style,omitempty"`
+	Subtype    string        `json:"subtype,omitempty"`
+	Title      string        `json:"title,omitempty"`
+	Info       string        `json:"info,omitempty"`
+	Fill       string        `json:"fill,omitempty"` // Color hex code or image URL
+	GeoJsonPin *GeoJsonPin   `json:"geojsonpin,omitempty"`
+	Img        string        `json:"img,omitempty"` // For popup modal
+	Style      *GeoJsonStyle `json:"style,omitempty"`
 }
 
 type Sublocation struct {
@@ -161,6 +162,93 @@ func NewAppService(db *pgxpool.Pool) *AppService {
 	return &AppService{db: db}
 }
 
+// Helper function to parse coordinates from database JSON
+// Database stores: {"lat": "47.5798", "lon": "19.2474", "type": "Point"}
+// We need to convert to proper float64 values
+func parseCoordinates(coordinatesJSON string) (*GeoPoint, error) {
+	if coordinatesJSON == "" {
+		return nil, nil
+	}
+
+	var rawCoords map[string]interface{}
+	if err := json.Unmarshal([]byte(coordinatesJSON), &rawCoords); err != nil {
+		log.Printf("Error parsing coordinates JSON: %v", err)
+		return nil, err
+	}
+
+	// Extract lat and lon - they might be strings or floats
+	var lat, lon float64
+	var coordType string = "Point"
+
+	// Handle lat
+	if latVal, ok := rawCoords["lat"]; ok {
+		switch v := latVal.(type) {
+		case string:
+			if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+				lat = parsed
+			}
+		case float64:
+			lat = v
+		}
+	}
+
+	// Handle lon
+	if lonVal, ok := rawCoords["lon"]; ok {
+		switch v := lonVal.(type) {
+		case string:
+			if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+				lon = parsed
+			}
+		case float64:
+			lon = v
+		}
+	}
+
+	// Handle type
+	if typeVal, ok := rawCoords["type"].(string); ok {
+		coordType = typeVal
+	}
+
+	// Validate coordinates
+	if lat == 0 && lon == 0 {
+		log.Printf("Warning: Coordinates are zero or invalid: %s", coordinatesJSON)
+		return nil, fmt.Errorf("invalid coordinates")
+	}
+
+	return &GeoPoint{
+		Type: coordType,
+		Lat:  lat,
+		Lon:  lon,
+	}, nil
+}
+
+// Helper function to parse pin coordinates from nested JSON
+// Database stores pins like: {"coordinates": {"coordinates": [lon, lat]}}
+func parsePinCoordinates(coords map[string]interface{}) (float64, float64, error) {
+	// First check if coordinates field exists
+	if coordsField, ok := coords["coordinates"].(map[string]interface{}); ok {
+		// Then check for nested coordinates array
+		if coordsArray, ok := coordsField["coordinates"].([]interface{}); ok && len(coordsArray) == 2 {
+			lon, lonOk := coordsArray[0].(float64)
+			lat, latOk := coordsArray[1].(float64)
+			if lonOk && latOk {
+				return lon, lat, nil
+			}
+		}
+	}
+
+	// Try direct coordinates array format: {"coordinates": [lon, lat]}
+	if coordsArray, ok := coords["coordinates"].([]interface{}); ok && len(coordsArray) == 2 {
+		lon, lonOk := coordsArray[0].(float64)
+		lat, latOk := coordsArray[1].(float64)
+		if lonOk && latOk {
+			return lon, lat, nil
+		}
+	}
+
+	return 0, 0, fmt.Errorf("invalid coordinate format")
+}
+
 func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 	var loc Location
 
@@ -222,257 +310,103 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 	if boardsJSON.Valid && boardsJSON.String != "" {
 		_ = json.Unmarshal([]byte(boardsJSON.String), &loc.Boards)
 	}
+
+	// Parse main coordinates using helper function
 	if coordinatesJSON.Valid && coordinatesJSON.String != "" {
-		var rawCoords map[string]interface{}
-		if err := json.Unmarshal([]byte(coordinatesJSON.String), &rawCoords); err == nil {
-			if coords, ok := rawCoords["coordinates"].([]interface{}); ok && len(coords) == 2 {
-				if lon, ok := coords[0].(float64); ok {
-					if lat, ok := coords[1].(float64); ok {
-						loc.Coordinates = &GeoPoint{
-							Type: "Point",
-							Lon:  lon,
-							Lat:  lat,
-						}
-					}
-				}
-			}
+		if parsedCoords, err := parseCoordinates(coordinatesJSON.String); err == nil {
+			loc.Coordinates = parsedCoords
+			log.Printf("Parsed main coordinates for %s: lat=%f, lon=%f", loc.ID, parsedCoords.Lat, parsedCoords.Lon)
+		} else {
+			log.Printf("Failed to parse main coordinates for %s: %v", loc.ID, err)
 		}
 	}
+
+	// Helper function to parse pin arrays
+	parsePinArray := func(jsonStr string) []Pin {
+		var pins []Pin
+		var rawPins []map[string]interface{}
+		if err := json.Unmarshal([]byte(jsonStr), &rawPins); err == nil {
+			for _, raw := range rawPins {
+				pin := Pin{}
+				if name, ok := raw["name"].(string); ok {
+					pin.Name = name
+				}
+				if pinLink, ok := raw["pinLink"].(string); ok {
+					pin.PinLink = pinLink
+				}
+				if pinType, ok := raw["type"].(string); ok {
+					pin.Type = pinType
+				}
+				if info, ok := raw["info"].(string); ok {
+					pin.Info = info
+				}
+				if img, ok := raw["img"].(string); ok {
+					pin.Img = img
+				}
+				if url, ok := raw["url"].(string); ok {
+					pin.URL = url
+				}
+				if coords, ok := raw["coordinates"].(map[string]interface{}); ok {
+					if lon, lat, err := parsePinCoordinates(coords); err == nil {
+						pin.Lon = lon
+						pin.Lat = lat
+					}
+				}
+				pins = append(pins, pin)
+			}
+		}
+		return pins
+	}
+
+	// Parse all pin arrays
 	if landmarksJSON.Valid && landmarksJSON.String != "" {
-		var rawLandmarks []map[string]interface{}
-		if err := json.Unmarshal([]byte(landmarksJSON.String), &rawLandmarks); err == nil {
-			for _, raw := range rawLandmarks {
-				pin := Pin{}
-				if name, ok := raw["name"].(string); ok {
-					pin.Name = name
-				}
-				if pinLink, ok := raw["pinLink"].(string); ok {
-					pin.PinLink = pinLink
-				}
-				if pinType, ok := raw["type"].(string); ok {
-					pin.Type = pinType
-				}
-				if info, ok := raw["info"].(string); ok {
-					pin.Info = info
-				}
-				if img, ok := raw["img"].(string); ok {
-					pin.Img = img
-				}
-				if url, ok := raw["url"].(string); ok {
-					pin.URL = url
-				}
-				if coords, ok := raw["coordinates"].(map[string]interface{}); ok {
-					if coordsArray, ok := coords["coordinates"].([]interface{}); ok && len(coordsArray) == 2 {
-						if lon, ok := coordsArray[0].(float64); ok {
-							if lat, ok := coordsArray[1].(float64); ok {
-								pin.Lon = lon
-								pin.Lat = lat
-							}
-						}
-					}
-				}
-				loc.Landmarks = append(loc.Landmarks, pin)
-			}
-		}
+		loc.Landmarks = parsePinArray(landmarksJSON.String)
 	}
-	
-	// Parse business pins
+
 	if businessJSON.Valid && businessJSON.String != "" {
-		var rawBusiness []map[string]interface{}
-		if err := json.Unmarshal([]byte(businessJSON.String), &rawBusiness); err == nil {
-			for _, raw := range rawBusiness {
-				pin := Pin{}
-				if name, ok := raw["name"].(string); ok {
-					pin.Name = name
-				}
-				if pinLink, ok := raw["pinLink"].(string); ok {
-					pin.PinLink = pinLink
-				}
-				if pinType, ok := raw["type"].(string); ok {
-					pin.Type = pinType
-				}
-				if info, ok := raw["info"].(string); ok {
-					pin.Info = info
-				}
-				if img, ok := raw["img"].(string); ok {
-					pin.Img = img
-				}
-				if url, ok := raw["url"].(string); ok {
-					pin.URL = url
-				}
-				if coords, ok := raw["coordinates"].(map[string]interface{}); ok {
-					if coordsArray, ok := coords["coordinates"].([]interface{}); ok && len(coordsArray) == 2 {
-						if lon, ok := coordsArray[0].(float64); ok {
-							if lat, ok := coordsArray[1].(float64); ok {
-								pin.Lon = lon
-								pin.Lat = lat
-							}
-						}
-					}
-				}
-				loc.Business = append(loc.Business, pin)
-			}
-		}
+		loc.Business = parsePinArray(businessJSON.String)
 	}
-	
-	// Parse hospitality pins
+
 	if hospitalityJSON.Valid && hospitalityJSON.String != "" {
-		var rawHospitality []map[string]interface{}
-		if err := json.Unmarshal([]byte(hospitalityJSON.String), &rawHospitality); err == nil {
-			for _, raw := range rawHospitality {
-				pin := Pin{}
-				if name, ok := raw["name"].(string); ok {
-					pin.Name = name
-				}
-				if pinLink, ok := raw["pinLink"].(string); ok {
-					pin.PinLink = pinLink
-				}
-				if pinType, ok := raw["type"].(string); ok {
-					pin.Type = pinType
-				}
-				if info, ok := raw["info"].(string); ok {
-					pin.Info = info
-				}
-				if img, ok := raw["img"].(string); ok {
-					pin.Img = img
-				}
-				if url, ok := raw["url"].(string); ok {
-					pin.URL = url
-				}
-				if coords, ok := raw["coordinates"].(map[string]interface{}); ok {
-					if coordsArray, ok := coords["coordinates"].([]interface{}); ok && len(coordsArray) == 2 {
-						if lon, ok := coordsArray[0].(float64); ok {
-							if lat, ok := coordsArray[1].(float64); ok {
-								pin.Lon = lon
-								pin.Lat = lat
-							}
-						}
-					}
-				}
-				loc.Hospitality = append(loc.Hospitality, pin)
-			}
-		}
+		loc.Hospitality = parsePinArray(hospitalityJSON.String)
 	}
-	
-	// Parse events pins
+
 	if eventsJSON.Valid && eventsJSON.String != "" {
-		var rawEvents []map[string]interface{}
-		if err := json.Unmarshal([]byte(eventsJSON.String), &rawEvents); err == nil {
-			for _, raw := range rawEvents {
-				pin := Pin{}
-				if name, ok := raw["name"].(string); ok {
-					pin.Name = name
-				}
-				if pinLink, ok := raw["pinLink"].(string); ok {
-					pin.PinLink = pinLink
-				}
-				if pinType, ok := raw["type"].(string); ok {
-					pin.Type = pinType
-				}
-				if info, ok := raw["info"].(string); ok {
-					pin.Info = info
-				}
-				if img, ok := raw["img"].(string); ok {
-					pin.Img = img
-				}
-				if url, ok := raw["url"].(string); ok {
-					pin.URL = url
-				}
-				if coords, ok := raw["coordinates"].(map[string]interface{}); ok {
-					if coordsArray, ok := coords["coordinates"].([]interface{}); ok && len(coordsArray) == 2 {
-						if lon, ok := coordsArray[0].(float64); ok {
-							if lat, ok := coordsArray[1].(float64); ok {
-								pin.Lon = lon
-								pin.Lat = lat
-							}
-						}
-					}
-				}
-				loc.Events = append(loc.Events, pin)
-			}
-		}
+		loc.Events = parsePinArray(eventsJSON.String)
 	}
-	
-	// Parse PSA pins
+
 	if psaJSON.Valid && psaJSON.String != "" {
-		var rawPSA []map[string]interface{}
-		if err := json.Unmarshal([]byte(psaJSON.String), &rawPSA); err == nil {
-			for _, raw := range rawPSA {
-				pin := Pin{}
-				if name, ok := raw["name"].(string); ok {
-					pin.Name = name
-				}
-				if pinLink, ok := raw["pinLink"].(string); ok {
-					pin.PinLink = pinLink
-				}
-				if pinType, ok := raw["type"].(string); ok {
-					pin.Type = pinType
-				}
-				if info, ok := raw["info"].(string); ok {
-					pin.Info = info
-				}
-				if img, ok := raw["img"].(string); ok {
-					pin.Img = img
-				}
-				if url, ok := raw["url"].(string); ok {
-					pin.URL = url
-				}
-				if coords, ok := raw["coordinates"].(map[string]interface{}); ok {
-					if coordsArray, ok := coords["coordinates"].([]interface{}); ok && len(coordsArray) == 2 {
-						if lon, ok := coordsArray[0].(float64); ok {
-							if lat, ok := coordsArray[1].(float64); ok {
-								pin.Lon = lon
-								pin.Lat = lat
-							}
-						}
-					}
-				}
-				loc.PSA = append(loc.PSA, pin)
-			}
-		}
+		loc.PSA = parsePinArray(psaJSON.String)
 	}
-	
-	// Parse hotzone pins
+
 	if hotzonesJSON.Valid && hotzonesJSON.String != "" {
-		var rawHotzones []map[string]interface{}
-		if err := json.Unmarshal([]byte(hotzonesJSON.String), &rawHotzones); err == nil {
-			for _, raw := range rawHotzones {
-				pin := Pin{}
-				if name, ok := raw["name"].(string); ok {
-					pin.Name = name
-				}
-				if pinLink, ok := raw["pinLink"].(string); ok {
-					pin.PinLink = pinLink
-				}
-				if pinType, ok := raw["type"].(string); ok {
-					pin.Type = pinType
-				}
-				if info, ok := raw["info"].(string); ok {
-					pin.Info = info
-				}
-				if img, ok := raw["img"].(string); ok {
-					pin.Img = img
-				}
-				if url, ok := raw["url"].(string); ok {
-					pin.URL = url
-				}
-				if coords, ok := raw["coordinates"].(map[string]interface{}); ok {
-					if coordsArray, ok := coords["coordinates"].([]interface{}); ok && len(coordsArray) == 2 {
-						if lon, ok := coordsArray[0].(float64); ok {
-							if lat, ok := coordsArray[1].(float64); ok {
-								pin.Lon = lon
-								pin.Lat = lat
-							}
-						}
+		loc.Hotzones = parsePinArray(hotzonesJSON.String)
+	}
+
+	// Parse sublocations
+	if sublocationsJSON.Valid && sublocationsJSON.String != "" {
+		var sublocs SublocationsData
+		if err := json.Unmarshal([]byte(sublocationsJSON.String), &sublocs); err == nil {
+			// Parse coordinates for current sublocation
+			if sublocs.CurrentSublocation != nil && sublocs.CurrentSublocation.Coordinates != nil {
+				// Coordinates are already parsed as GeoPoint, just validate
+				log.Printf("Current sublocation coordinates: lat=%f, lon=%f", 
+					sublocs.CurrentSublocation.Coordinates.Lat, 
+					sublocs.CurrentSublocation.Coordinates.Lon)
+			}
+			// Parse coordinates for all sublocations
+			if sublocs.AllSublocations != nil {
+				for i := range sublocs.AllSublocations {
+					if sublocs.AllSublocations[i].Coordinates != nil {
+						log.Printf("Sublocation %s coordinates: lat=%f, lon=%f", 
+							sublocs.AllSublocations[i].ID,
+							sublocs.AllSublocations[i].Coordinates.Lat, 
+							sublocs.AllSublocations[i].Coordinates.Lon)
 					}
 				}
-				loc.Hotzones = append(loc.Hotzones, pin)
 			}
+			loc.Sublocations = &sublocs
 		}
-	}
-	
-	if sublocationsJSON.Valid && sublocationsJSON.String != "" {
-		_ = json.Unmarshal([]byte(sublocationsJSON.String), &loc.Sublocations)
 	}
 
 	return loc, nil
@@ -486,7 +420,7 @@ func (s *AppService) GetTopLocations(ctx context.Context, limit int) ([]Location
 	if limit > 100 {
 		limit = 100
 	}
-	
+
 	rows, err := s.db.Query(ctx, "SELECT * FROM get_top_locations($1);", limit)
 	if err != nil {
 		return nil, fmt.Errorf("database query failed: %w", err)
@@ -502,11 +436,11 @@ func (s *AppService) GetTopLocations(ctx context.Context, limit int) ([]Location
 		}
 		locations = append(locations, loc)
 	}
-	
+
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating rows: %w", err)
 	}
-	
+
 	return locations, nil
 }
 
