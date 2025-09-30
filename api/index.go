@@ -159,6 +159,34 @@ type Chart struct {
 	ChartData  interface{} `json:"chart_data"`
 }
 
+
+
+// Add to Data Structs section
+type Reporting struct {
+	ID                  int         `json:"id"`
+	Name                string      `json:"name"`
+	Info                string      `json:"info"`
+	Type                string      `json:"type"`
+	CreatedBy           string      `json:"created_by"`
+	Coordinates         *GeoPoint   `json:"coordinates"`
+	CreatedAt           string      `json:"created_at"`
+	ParentLocationID    string      `json:"parent_location_id"`
+	ParentSublocationID string      `json:"parent_sublocation_id,omitempty"`
+}
+
+type Mood struct {
+	ID                  int         `json:"id"`
+	Name                string      `json:"name"`
+	Info                string      `json:"info"`
+	Type                string      `json:"type"`
+	CreatedBy           string      `json:"created_by"`
+	Coordinates         *GeoPoint   `json:"coordinates"`
+	CreatedAt           string      `json:"created_at"`
+	ParentLocationID    string      `json:"parent_location_id"`
+	ParentSublocationID string      `json:"parent_sublocation_id,omitempty"`
+}
+
+
 // ====================================================================================
 // Application Service
 // ====================================================================================
@@ -574,6 +602,305 @@ func (s *AppService) GetChartsForLocation(ctx context.Context, locationID string
 	}
 	return charts, nil
 }
+
+// REPORTING AND MOODS FUNTIONS BEYOND HERE 
+
+
+func (s *AppService) CreateReporting(ctx context.Context, name, info, reportType, createdBy string, coordinates *GeoPoint, parentLocationID, parentSublocationID string) (Reporting, error) {
+	coordsJSON, err := json.Marshal(coordinates)
+	if err != nil {
+		return Reporting{}, fmt.Errorf("failed to marshal coordinates: %w", err)
+	}
+
+	var reporting Reporting
+	var coordsStr sql.NullString
+	var sublocationID sql.NullString
+	var createdAt sql.NullString
+
+	err = s.db.QueryRow(ctx,
+		"SELECT * FROM create_reporting($1, $2, $3, $4, $5, $6, $7);",
+		name, info, reportType, createdBy, string(coordsJSON), parentLocationID, 
+		sql.NullString{String: parentSublocationID, Valid: parentSublocationID != ""},
+	).Scan(&reporting.ID, &reporting.Name, &reporting.Info, &reporting.Type, 
+		&reporting.CreatedBy, &coordsStr, &createdAt, &reporting.ParentLocationID, &sublocationID)
+
+	if err != nil {
+		return Reporting{}, fmt.Errorf("failed to create reporting: %w", err)
+	}
+
+	if coordsStr.Valid && coordsStr.String != "" {
+		if parsedCoords, err := parseMainCoordinates(coordsStr.String); err == nil {
+			reporting.Coordinates = parsedCoords
+		}
+	}
+
+	if createdAt.Valid {
+		reporting.CreatedAt = createdAt.String
+	}
+
+	if sublocationID.Valid {
+		reporting.ParentSublocationID = sublocationID.String
+	}
+
+	return reporting, nil
+}
+
+func (s *AppService) GetReportingsByLocation(ctx context.Context, locationID string) ([]Reporting, error) {
+	rows, err := s.db.Query(ctx, "SELECT * FROM get_reportings_by_location($1);", locationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get reportings: %w", err)
+	}
+	defer rows.Close()
+
+	var reportings []Reporting
+	for rows.Next() {
+		var r Reporting
+		var coordsStr sql.NullString
+		var sublocationID sql.NullString
+		var createdAt sql.NullString
+
+		err := rows.Scan(&r.ID, &r.Name, &r.Info, &r.Type, &r.CreatedBy, 
+			&coordsStr, &createdAt, &r.ParentLocationID, &sublocationID)
+		if err != nil {
+			log.Printf("Warning: failed to scan reporting row: %v", err)
+			continue
+		}
+
+		if coordsStr.Valid && coordsStr.String != "" {
+			if parsedCoords, err := parseMainCoordinates(coordsStr.String); err == nil {
+				r.Coordinates = parsedCoords
+			}
+		}
+
+		if createdAt.Valid {
+			r.CreatedAt = createdAt.String
+		}
+
+		if sublocationID.Valid {
+			r.ParentSublocationID = sublocationID.String
+		}
+
+		reportings = append(reportings, r)
+	}
+
+	return reportings, nil
+}
+
+func (s *AppService) DeleteReporting(ctx context.Context, id int, userID string) (bool, error) {
+	var deleted bool
+	err := s.db.QueryRow(ctx, "SELECT delete_reporting($1, $2);", id, userID).Scan(&deleted)
+	if err != nil {
+		return false, fmt.Errorf("failed to delete reporting: %w", err)
+	}
+	return deleted, nil
+}
+
+func (s *AppService) EditReporting(ctx context.Context, id int, userID, name, info, reportType string) (Reporting, error) {
+	var r Reporting
+	var coordsStr sql.NullString
+	var sublocationID sql.NullString
+	var createdAt sql.NullString
+
+	err := s.db.QueryRow(ctx,
+		"SELECT * FROM edit_reporting($1, $2, $3, $4, $5);",
+		id, userID, name, info, reportType,
+	).Scan(&r.ID, &r.Name, &r.Info, &r.Type, &r.CreatedBy, 
+		&coordsStr, &createdAt, &r.ParentLocationID, &sublocationID)
+
+	if err != nil {
+		return Reporting{}, fmt.Errorf("failed to edit reporting: %w", err)
+	}
+
+	if coordsStr.Valid && coordsStr.String != "" {
+		if parsedCoords, err := parseMainCoordinates(coordsStr.String); err == nil {
+			r.Coordinates = parsedCoords
+		}
+	}
+
+	if createdAt.Valid {
+		r.CreatedAt = createdAt.String
+	}
+
+	if sublocationID.Valid {
+		r.ParentSublocationID = sublocationID.String
+	}
+
+	return r, nil
+}
+
+func (s *AppService) CreateMood(ctx context.Context, name, info, moodType, createdBy string, coordinates *GeoPoint, parentLocationID, parentSublocationID string) (Mood, error) {
+	coordsJSON, err := json.Marshal(coordinates)
+	if err != nil {
+		return Mood{}, fmt.Errorf("failed to marshal coordinates: %w", err)
+	}
+
+	var mood Mood
+	var coordsStr sql.NullString
+	var sublocationID sql.NullString
+	var createdAt sql.NullString
+
+	err = s.db.QueryRow(ctx,
+		"SELECT * FROM create_mood($1, $2, $3, $4, $5, $6, $7);",
+		name, info, moodType, createdBy, string(coordsJSON), parentLocationID,
+		sql.NullString{String: parentSublocationID, Valid: parentSublocationID != ""},
+	).Scan(&mood.ID, &mood.Name, &mood.Info, &mood.Type, &mood.CreatedBy, 
+		&coordsStr, &createdAt, &mood.ParentLocationID, &sublocationID)
+
+	if err != nil {
+		return Mood{}, fmt.Errorf("failed to create mood: %w", err)
+	}
+
+	if coordsStr.Valid && coordsStr.String != "" {
+		if parsedCoords, err := parseMainCoordinates(coordsStr.String); err == nil {
+			mood.Coordinates = parsedCoords
+		}
+	}
+
+	if createdAt.Valid {
+		mood.CreatedAt = createdAt.String
+	}
+
+	if sublocationID.Valid {
+		mood.ParentSublocationID = sublocationID.String
+	}
+
+	return mood, nil
+}
+
+func (s *AppService) GetMoodsByLocation(ctx context.Context, locationID string) ([]Mood, error) {
+	rows, err := s.db.Query(ctx, "SELECT * FROM get_moods_by_location($1);", locationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get moods: %w", err)
+	}
+	defer rows.Close()
+
+	var moods []Mood
+	for rows.Next() {
+		var m Mood
+		var coordsStr sql.NullString
+		var sublocationID sql.NullString
+		var createdAt sql.NullString
+
+		err := rows.Scan(&m.ID, &m.Name, &m.Info, &m.Type, &m.CreatedBy,
+			&coordsStr, &createdAt, &m.ParentLocationID, &sublocationID)
+		if err != nil {
+			log.Printf("Warning: failed to scan mood row: %v", err)
+			continue
+		}
+
+		if coordsStr.Valid && coordsStr.String != "" {
+			if parsedCoords, err := parseMainCoordinates(coordsStr.String); err == nil {
+				m.Coordinates = parsedCoords
+			}
+		}
+
+		if createdAt.Valid {
+			m.CreatedAt = createdAt.String
+		}
+
+		if sublocationID.Valid {
+			m.ParentSublocationID = sublocationID.String
+		}
+
+		moods = append(moods, m)
+	}
+
+	return moods, nil
+}
+
+func (s *AppService) DeleteMood(ctx context.Context, id int, userID string) (bool, error) {
+	var deleted bool
+	err := s.db.QueryRow(ctx, "SELECT delete_mood($1, $2);", id, userID).Scan(&deleted)
+	if err != nil {
+		return false, fmt.Errorf("failed to delete mood: %w", err)
+	}
+	return deleted, nil
+}
+
+// Add these cases to the handleRpcRequest switch statement
+	case "createReporting":
+		var params struct {
+			Name                string   `json:"name"`
+			Info                string   `json:"info"`
+			Type                string   `json:"type"`
+			Coordinates         GeoPoint `json:"coordinates"`
+			ParentLocationID    string   `json:"parentLocationId"`
+			ParentSublocationID string   `json:"parentSublocationId"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil || params.Name == "" {
+			processingError = fmt.Errorf("missing or invalid parameters")
+			break
+		}
+		resultData, processingError = service.CreateReporting(ctx, params.Name, params.Info, params.Type, uid, &params.Coordinates, params.ParentLocationID, params.ParentSublocationID)
+
+	case "getReportingsByLocation":
+		var params struct {
+			LocationID string `json:"locationId"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil || params.LocationID == "" {
+			processingError = fmt.Errorf("missing or invalid 'locationId' parameter")
+			break
+		}
+		resultData, processingError = service.GetReportingsByLocation(ctx, params.LocationID)
+
+	case "deleteReporting":
+		var params struct {
+			ID int `json:"id"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			processingError = fmt.Errorf("missing or invalid 'id' parameter")
+			break
+		}
+		resultData, processingError = service.DeleteReporting(ctx, params.ID, uid)
+
+	case "editReporting":
+		var params struct {
+			ID   int    `json:"id"`
+			Name string `json:"name"`
+			Info string `json:"info"`
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			processingError = fmt.Errorf("missing or invalid parameters")
+			break
+		}
+		resultData, processingError = service.EditReporting(ctx, params.ID, uid, params.Name, params.Info, params.Type)
+
+	case "createMood":
+		var params struct {
+			Name                string   `json:"name"`
+			Info                string   `json:"info"`
+			Type                string   `json:"type"`
+			Coordinates         GeoPoint `json:"coordinates"`
+			ParentLocationID    string   `json:"parentLocationId"`
+			ParentSublocationID string   `json:"parentSublocationId"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil || params.Name == "" {
+			processingError = fmt.Errorf("missing or invalid parameters")
+			break
+		}
+		resultData, processingError = service.CreateMood(ctx, params.Name, params.Info, params.Type, uid, &params.Coordinates, params.ParentLocationID, params.ParentSublocationID)
+
+	case "getMoodsByLocation":
+		var params struct {
+			LocationID string `json:"locationId"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil || params.LocationID == "" {
+			processingError = fmt.Errorf("missing or invalid 'locationId' parameter")
+			break
+		}
+		resultData, processingError = service.GetMoodsByLocation(ctx, params.LocationID)
+
+	case "deleteMood":
+		var params struct {
+			ID int `json:"id"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			processingError = fmt.Errorf("missing or invalid 'id' parameter")
+			break
+		}
+		resultData, processingError = service.DeleteMood(ctx, params.ID, uid)
+
 
 // ====================================================================================
 // User Logging and Rate Limiting Helpers
