@@ -162,91 +162,177 @@ func NewAppService(db *pgxpool.Pool) *AppService {
 	return &AppService{db: db}
 }
 
-// Helper function to parse coordinates from database JSON
-// Database stores: {"lat": "47.5798", "lon": "19.2474", "type": "Point"}
-// We need to convert to proper float64 values
-func parseCoordinates(coordinatesJSON string) (*GeoPoint, error) {
+// Unified coordinate parsing function
+// Handles multiple formats:
+// 1. {"lat": "47.5798", "lon": "19.2474", "type": "Point"} - main coordinates
+// 2. {"coordinates": {"coordinates": [lon, lat]}} - nested pin format
+// 3. {"coordinates": [lon, lat]} - simple array format
+// 4. {"lat": 47.5798, "lon": 19.2474} - numeric format
+func parseAnyCoordinates(data interface{}) (lat float64, lon float64, err error) {
+	switch v := data.(type) {
+	case string:
+		// Parse JSON string
+		var coordMap map[string]interface{}
+		if err := json.Unmarshal([]byte(v), &coordMap); err != nil {
+			return 0, 0, fmt.Errorf("failed to parse coordinate string: %w", err)
+		}
+		return parseCoordinateMap(coordMap)
+	
+	case map[string]interface{}:
+		return parseCoordinateMap(v)
+	
+	default:
+		return 0, 0, fmt.Errorf("unsupported coordinate type: %T", data)
+	}
+}
+
+func parseCoordinateMap(coordMap map[string]interface{}) (lat float64, lon float64, err error) {
+	// Try direct lat/lon fields first (main coordinates format)
+	if latVal, hasLat := coordMap["lat"]; hasLat {
+		if lonVal, hasLon := coordMap["lon"]; hasLon {
+			lat = parseFloatValue(latVal)
+			lon = parseFloatValue(lonVal)
+			if lat != 0 || lon != 0 {
+				return lat, lon, nil
+			}
+		}
+	}
+
+	// Try nested coordinates format: {"coordinates": {"coordinates": [lon, lat]}}
+	if coordsField, ok := coordMap["coordinates"].(map[string]interface{}); ok {
+		if coordsArray, ok := coordsField["coordinates"].([]interface{}); ok && len(coordsArray) >= 2 {
+			lon = parseFloatValue(coordsArray[0])
+			lat = parseFloatValue(coordsArray[1])
+			if lat != 0 || lon != 0 {
+				return lat, lon, nil
+			}
+		}
+	}
+
+	// Try simple array format: {"coordinates": [lon, lat]}
+	if coordsArray, ok := coordMap["coordinates"].([]interface{}); ok && len(coordsArray) >= 2 {
+		lon = parseFloatValue(coordsArray[0])
+		lat = parseFloatValue(coordsArray[1])
+		if lat != 0 || lon != 0 {
+			return lat, lon, nil
+		}
+	}
+
+	return 0, 0, fmt.Errorf("no valid coordinates found in map")
+}
+
+func parseFloatValue(val interface{}) float64 {
+	switch v := val.(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case string:
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			return parsed
+		}
+	}
+	return 0
+}
+
+// Helper function to parse main location coordinates
+func parseMainCoordinates(coordinatesJSON string) (*GeoPoint, error) {
 	if coordinatesJSON == "" {
 		return nil, nil
 	}
 
-	var rawCoords map[string]interface{}
-	if err := json.Unmarshal([]byte(coordinatesJSON), &rawCoords); err != nil {
-		log.Printf("Error parsing coordinates JSON: %v", err)
+	lat, lon, err := parseAnyCoordinates(coordinatesJSON)
+	if err != nil {
+		log.Printf("Error parsing main coordinates: %v", err)
 		return nil, err
 	}
 
-	// Extract lat and lon - they might be strings or floats
-	var lat, lon float64
-	var coordType string = "Point"
-
-	// Handle lat
-	if latVal, ok := rawCoords["lat"]; ok {
-		switch v := latVal.(type) {
-		case string:
-			if parsed, err := strconv.ParseFloat(v, 64); err == nil {
-				lat = parsed
-			}
-		case float64:
-			lat = v
-		}
-	}
-
-	// Handle lon
-	if lonVal, ok := rawCoords["lon"]; ok {
-		switch v := lonVal.(type) {
-		case string:
-			if parsed, err := strconv.ParseFloat(v, 64); err == nil {
-				lon = parsed
-			}
-		case float64:
-			lon = v
-		}
-	}
-
-	// Handle type
-	if typeVal, ok := rawCoords["type"].(string); ok {
-		coordType = typeVal
-	}
-
-	// Validate coordinates
 	if lat == 0 && lon == 0 {
-		log.Printf("Warning: Coordinates are zero or invalid: %s", coordinatesJSON)
+		log.Printf("Warning: Main coordinates are zero: %s", coordinatesJSON)
 		return nil, fmt.Errorf("invalid coordinates")
 	}
 
 	return &GeoPoint{
-		Type: coordType,
+		Type: "Point",
 		Lat:  lat,
 		Lon:  lon,
 	}, nil
 }
 
-// Helper function to parse pin coordinates from nested JSON
-// Database stores pins like: {"coordinates": {"coordinates": [lon, lat]}}
-func parsePinCoordinates(coords map[string]interface{}) (float64, float64, error) {
-	// First check if coordinates field exists
-	if coordsField, ok := coords["coordinates"].(map[string]interface{}); ok {
-		// Then check for nested coordinates array
-		if coordsArray, ok := coordsField["coordinates"].([]interface{}); ok && len(coordsArray) == 2 {
-			lon, lonOk := coordsArray[0].(float64)
-			lat, latOk := coordsArray[1].(float64)
-			if lonOk && latOk {
-				return lon, lat, nil
+// Unified pin parsing function
+func parsePinArray(jsonStr string, pinType string) []Pin {
+	if jsonStr == "" {
+		return []Pin{}
+	}
+
+	var pins []Pin
+	var rawPins []map[string]interface{}
+	
+	if err := json.Unmarshal([]byte(jsonStr), &rawPins); err != nil {
+		log.Printf("Error parsing %s pins JSON: %v", pinType, err)
+		return []Pin{}
+	}
+
+	for idx, raw := range rawPins {
+		pin := Pin{}
+		
+		// Parse basic fields
+		if name, ok := raw["name"].(string); ok {
+			pin.Name = name
+		}
+		if pinLink, ok := raw["pinLink"].(string); ok {
+			pin.PinLink = pinLink
+		}
+		if pType, ok := raw["type"].(string); ok {
+			pin.Type = pType
+		}
+		if info, ok := raw["info"].(string); ok {
+			pin.Info = info
+		}
+		if img, ok := raw["img"].(string); ok {
+			pin.Img = img
+		}
+		if url, ok := raw["url"].(string); ok {
+			pin.URL = url
+		}
+
+		// Parse coordinates using unified function
+		// Try multiple possible coordinate fields
+		var lat, lon float64
+		var coordErr error
+
+		// First try "coordinates" field
+		if coords, ok := raw["coordinates"]; ok {
+			lat, lon, coordErr = parseAnyCoordinates(coords)
+		}
+
+		// If that fails, try direct lat/lon fields
+		if coordErr != nil || (lat == 0 && lon == 0) {
+			if latVal, hasLat := raw["lat"]; hasLat {
+				if lonVal, hasLon := raw["lon"]; hasLon {
+					lat = parseFloatValue(latVal)
+					lon = parseFloatValue(lonVal)
+					coordErr = nil
+				}
 			}
 		}
-	}
 
-	// Try direct coordinates array format: {"coordinates": [lon, lat]}
-	if coordsArray, ok := coords["coordinates"].([]interface{}); ok && len(coordsArray) == 2 {
-		lon, lonOk := coordsArray[0].(float64)
-		lat, latOk := coordsArray[1].(float64)
-		if lonOk && latOk {
-			return lon, lat, nil
+		if coordErr == nil && (lat != 0 || lon != 0) {
+			pin.Lat = lat
+			pin.Lon = lon
+			log.Printf("Parsed %s pin #%d '%s': lat=%f, lon=%f", pinType, idx, pin.Name, lat, lon)
+		} else {
+			log.Printf("Warning: Could not parse coordinates for %s pin #%d '%s'", pinType, idx, pin.Name)
 		}
+
+		pins = append(pins, pin)
 	}
 
-	return 0, 0, fmt.Errorf("invalid coordinate format")
+	return pins
 }
 
 func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
@@ -311,9 +397,9 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 		_ = json.Unmarshal([]byte(boardsJSON.String), &loc.Boards)
 	}
 
-	// Parse main coordinates using helper function
+	// Parse main coordinates
 	if coordinatesJSON.Valid && coordinatesJSON.String != "" {
-		if parsedCoords, err := parseCoordinates(coordinatesJSON.String); err == nil {
+		if parsedCoords, err := parseMainCoordinates(coordinatesJSON.String); err == nil {
 			loc.Coordinates = parsedCoords
 			log.Printf("Parsed main coordinates for %s: lat=%f, lon=%f", loc.ID, parsedCoords.Lat, parsedCoords.Lon)
 		} else {
@@ -321,80 +407,48 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 		}
 	}
 
-	// Helper function to parse pin arrays
-	parsePinArray := func(jsonStr string) []Pin {
-		var pins []Pin
-		var rawPins []map[string]interface{}
-		if err := json.Unmarshal([]byte(jsonStr), &rawPins); err == nil {
-			for _, raw := range rawPins {
-				pin := Pin{}
-				if name, ok := raw["name"].(string); ok {
-					pin.Name = name
-				}
-				if pinLink, ok := raw["pinLink"].(string); ok {
-					pin.PinLink = pinLink
-				}
-				if pinType, ok := raw["type"].(string); ok {
-					pin.Type = pinType
-				}
-				if info, ok := raw["info"].(string); ok {
-					pin.Info = info
-				}
-				if img, ok := raw["img"].(string); ok {
-					pin.Img = img
-				}
-				if url, ok := raw["url"].(string); ok {
-					pin.URL = url
-				}
-				if coords, ok := raw["coordinates"].(map[string]interface{}); ok {
-					if lon, lat, err := parsePinCoordinates(coords); err == nil {
-						pin.Lon = lon
-						pin.Lat = lat
-					}
-				}
-				pins = append(pins, pin)
-			}
-		}
-		return pins
-	}
-
-	// Parse all pin arrays
+	// Parse all pin arrays using unified function
 	if landmarksJSON.Valid && landmarksJSON.String != "" {
-		loc.Landmarks = parsePinArray(landmarksJSON.String)
+		loc.Landmarks = parsePinArray(landmarksJSON.String, "landmarks")
+		log.Printf("Parsed %d landmarks for %s", len(loc.Landmarks), loc.ID)
 	}
 
 	if businessJSON.Valid && businessJSON.String != "" {
-		loc.Business = parsePinArray(businessJSON.String)
+		loc.Business = parsePinArray(businessJSON.String, "business")
+		log.Printf("Parsed %d business pins for %s", len(loc.Business), loc.ID)
 	}
 
 	if hospitalityJSON.Valid && hospitalityJSON.String != "" {
-		loc.Hospitality = parsePinArray(hospitalityJSON.String)
+		loc.Hospitality = parsePinArray(hospitalityJSON.String, "hospitality")
+		log.Printf("Parsed %d hospitality pins for %s", len(loc.Hospitality), loc.ID)
 	}
 
 	if eventsJSON.Valid && eventsJSON.String != "" {
-		loc.Events = parsePinArray(eventsJSON.String)
+		loc.Events = parsePinArray(eventsJSON.String, "events")
+		log.Printf("Parsed %d event pins for %s", len(loc.Events), loc.ID)
 	}
 
 	if psaJSON.Valid && psaJSON.String != "" {
-		loc.PSA = parsePinArray(psaJSON.String)
+		loc.PSA = parsePinArray(psaJSON.String, "psa")
+		log.Printf("Parsed %d PSA pins for %s", len(loc.PSA), loc.ID)
 	}
 
 	if hotzonesJSON.Valid && hotzonesJSON.String != "" {
-		loc.Hotzones = parsePinArray(hotzonesJSON.String)
+		loc.Hotzones = parsePinArray(hotzonesJSON.String, "hotzones")
+		log.Printf("Parsed %d hotzone pins for %s", len(loc.Hotzones), loc.ID)
 	}
 
 	// Parse sublocations
 	if sublocationsJSON.Valid && sublocationsJSON.String != "" {
 		var sublocs SublocationsData
 		if err := json.Unmarshal([]byte(sublocationsJSON.String), &sublocs); err == nil {
-			// Parse coordinates for current sublocation
+			// Coordinates for sublocations are already parsed correctly by the database function
 			if sublocs.CurrentSublocation != nil && sublocs.CurrentSublocation.Coordinates != nil {
-				// Coordinates are already parsed as GeoPoint, just validate
-				log.Printf("Current sublocation coordinates: lat=%f, lon=%f", 
+				log.Printf("Current sublocation %s coordinates: lat=%f, lon=%f", 
+					sublocs.CurrentSublocation.ID,
 					sublocs.CurrentSublocation.Coordinates.Lat, 
 					sublocs.CurrentSublocation.Coordinates.Lon)
 			}
-			// Parse coordinates for all sublocations
 			if sublocs.AllSublocations != nil {
 				for i := range sublocs.AllSublocations {
 					if sublocs.AllSublocations[i].Coordinates != nil {
