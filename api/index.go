@@ -817,89 +817,6 @@ func (s *AppService) DeleteMood(ctx context.Context, id int, userID string) (boo
 	return deleted, nil
 }
 
-// Add these cases to the handleRpcRequest switch statement
-	case "createReporting":
-		var params struct {
-			Name                string   `json:"name"`
-			Info                string   `json:"info"`
-			Type                string   `json:"type"`
-			Coordinates         GeoPoint `json:"coordinates"`
-			ParentLocationID    string   `json:"parentLocationId"`
-			ParentSublocationID string   `json:"parentSublocationId"`
-		}
-		if err := json.Unmarshal(req.Params, &params); err != nil || params.Name == "" {
-			processingError = fmt.Errorf("missing or invalid parameters")
-			break
-		}
-		resultData, processingError = service.CreateReporting(ctx, params.Name, params.Info, params.Type, uid, &params.Coordinates, params.ParentLocationID, params.ParentSublocationID)
-
-	case "getReportingsByLocation":
-		var params struct {
-			LocationID string `json:"locationId"`
-		}
-		if err := json.Unmarshal(req.Params, &params); err != nil || params.LocationID == "" {
-			processingError = fmt.Errorf("missing or invalid 'locationId' parameter")
-			break
-		}
-		resultData, processingError = service.GetReportingsByLocation(ctx, params.LocationID)
-
-	case "deleteReporting":
-		var params struct {
-			ID int `json:"id"`
-		}
-		if err := json.Unmarshal(req.Params, &params); err != nil {
-			processingError = fmt.Errorf("missing or invalid 'id' parameter")
-			break
-		}
-		resultData, processingError = service.DeleteReporting(ctx, params.ID, uid)
-
-	case "editReporting":
-		var params struct {
-			ID   int    `json:"id"`
-			Name string `json:"name"`
-			Info string `json:"info"`
-			Type string `json:"type"`
-		}
-		if err := json.Unmarshal(req.Params, &params); err != nil {
-			processingError = fmt.Errorf("missing or invalid parameters")
-			break
-		}
-		resultData, processingError = service.EditReporting(ctx, params.ID, uid, params.Name, params.Info, params.Type)
-
-	case "createMood":
-		var params struct {
-			Name                string   `json:"name"`
-			Info                string   `json:"info"`
-			Type                string   `json:"type"`
-			Coordinates         GeoPoint `json:"coordinates"`
-			ParentLocationID    string   `json:"parentLocationId"`
-			ParentSublocationID string   `json:"parentSublocationId"`
-		}
-		if err := json.Unmarshal(req.Params, &params); err != nil || params.Name == "" {
-			processingError = fmt.Errorf("missing or invalid parameters")
-			break
-		}
-		resultData, processingError = service.CreateMood(ctx, params.Name, params.Info, params.Type, uid, &params.Coordinates, params.ParentLocationID, params.ParentSublocationID)
-
-	case "getMoodsByLocation":
-		var params struct {
-			LocationID string `json:"locationId"`
-		}
-		if err := json.Unmarshal(req.Params, &params); err != nil || params.LocationID == "" {
-			processingError = fmt.Errorf("missing or invalid 'locationId' parameter")
-			break
-		}
-		resultData, processingError = service.GetMoodsByLocation(ctx, params.LocationID)
-
-	case "deleteMood":
-		var params struct {
-			ID int `json:"id"`
-		}
-		if err := json.Unmarshal(req.Params, &params); err != nil {
-			processingError = fmt.Errorf("missing or invalid 'id' parameter")
-			break
-		}
-		resultData, processingError = service.DeleteMood(ctx, params.ID, uid)
 
 
 // ====================================================================================
@@ -1020,6 +937,92 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 		}
 		resultData, processingError = service.GetChartsForLocation(ctx, params.LocationID)
 
+// Add these cases to the handleRpcRequest switch statement
+	case "createReporting":
+		var params struct {
+			Name                string   `json:"name"`
+			Info                string   `json:"info"`
+			Type                string   `json:"type"`
+			Coordinates         GeoPoint `json:"coordinates"`
+			ParentLocationID    string   `json:"parentLocationId"`
+			ParentSublocationID string   `json:"parentSublocationId"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil || params.Name == "" {
+			processingError = fmt.Errorf("missing or invalid parameters")
+			break
+		}
+		resultData, processingError = service.CreateReporting(ctx, params.Name, params.Info, params.Type, uid, &params.Coordinates, params.ParentLocationID, params.ParentSublocationID)
+
+	case "getReportingsByLocation":
+		var params struct {
+			LocationID string `json:"locationId"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil || params.LocationID == "" {
+			processingError = fmt.Errorf("missing or invalid 'locationId' parameter")
+			break
+		}
+		resultData, processingError = service.GetReportingsByLocation(ctx, params.LocationID)
+
+	case "deleteReporting":
+		var params struct {
+			ID int `json:"id"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			processingError = fmt.Errorf("missing or invalid 'id' parameter")
+			break
+		}
+		resultData, processingError = service.DeleteReporting(ctx, params.ID, uid)
+
+	case "editReporting":
+		var params struct {
+			ID   int    `json:"id"`
+			Name string `json:"name"`
+			Info string `json:"info"`
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			processingError = fmt.Errorf("missing or invalid parameters")
+			break
+		}
+		resultData, processingError = service.EditReporting(ctx, params.ID, uid, params.Name, params.Info, params.Type)
+
+	case "createMood":
+		var params struct {
+			Name                string   `json:"name"`
+			Info                string   `json:"info"`
+			Type                string   `json:"type"`
+			Coordinates         GeoPoint `json:"coordinates"`
+			ParentLocationID    string   `json:"parentLocationId"`
+			ParentSublocationID string   `json:"parentSublocationId"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil || params.Name == "" {
+			processingError = fmt.Errorf("missing or invalid parameters")
+			break
+		}
+		resultData, processingError = service.CreateMood(ctx, params.Name, params.Info, params.Type, uid, &params.Coordinates, params.ParentLocationID, params.ParentSublocationID)
+
+	case "getMoodsByLocation":
+		var params struct {
+			LocationID string `json:"locationId"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil || params.LocationID == "" {
+			processingError = fmt.Errorf("missing or invalid 'locationId' parameter")
+			break
+		}
+		resultData, processingError = service.GetMoodsByLocation(ctx, params.LocationID)
+
+	case "deleteMood":
+		var params struct {
+			ID int `json:"id"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			processingError = fmt.Errorf("missing or invalid 'id' parameter")
+			break
+		}
+		resultData, processingError = service.DeleteMood(ctx, params.ID, uid)
+
+
+		
 	default:
 		processingError = fmt.Errorf("method not found: %s", req.Method)
 	}
