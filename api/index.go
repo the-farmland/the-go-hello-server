@@ -51,26 +51,34 @@ type GeoPoint struct {
 }
 
 type Pin struct {
-	Name    string  `json:"name"`
-	PinLink string  `json:"pinLink"`
-	Lon     float64 `json:"lon"`
-	Lat     float64 `json:"lat"`
-	Type    string  `json:"type"`
-	Info    string  `json:"info,omitempty"`
-	Img     string  `json:"img,omitempty"`
-	URL     string  `json:"url,omitempty"`
+	Name     string  `json:"name"`
+	PinLink  string  `json:"pinLink"`
+	Lon      float64 `json:"lon"`
+	Lat      float64 `json:"lat"`
+	Type     string  `json:"type"`
+	Info     string  `json:"info,omitempty"`
+	Img      string  `json:"img,omitempty"`
+	URL      string  `json:"url,omitempty"`
+	Position string  `json:"position,omitempty"`
+	Team     string  `json:"team,omitempty"`
+	Number   string  `json:"number,omitempty"`
+	End      string  `json:"end,omitempty"`
 }
 
 // New GeoJSON Pin structure
 type GeoJsonPin struct {
-	Name    string  `json:"name"`
-	PinLink string  `json:"pinLink"`
-	Lon     float64 `json:"lon"`
-	Lat     float64 `json:"lat"`
-	Type    string  `json:"type"`
-	Info    string  `json:"info,omitempty"`
-	Img     string  `json:"img,omitempty"`
-	URL     string  `json:"url,omitempty"`
+	Name     string  `json:"name"`
+	PinLink  string  `json:"pinLink"`
+	Lon      float64 `json:"lon"`
+	Lat      float64 `json:"lat"`
+	Type     string  `json:"type"`
+	Info     string  `json:"info,omitempty"`
+	Img      string  `json:"img,omitempty"`
+	URL      string  `json:"url,omitempty"`
+	Position string  `json:"position,omitempty"`
+	Team     string  `json:"team,omitempty"`
+	Number   string  `json:"number,omitempty"`
+	End      string  `json:"end,omitempty"`
 }
 
 // GeoJSON Style configuration
@@ -140,6 +148,7 @@ type Location struct {
 	Geojson             *GeoJsonData      `json:"geojson,omitempty"` // Changed to structured data
 	Hotzones            []Pin             `json:"hotzones,omitempty"`
 	Zoom                string            `json:"zoom"`
+	Results             []Pin             `json:"results,omitempty"`
 }
 
 type Chart struct {
@@ -299,6 +308,19 @@ func parsePinArray(jsonStr string, pinType string) []Pin {
 		if url, ok := raw["url"].(string); ok {
 			pin.URL = url
 		}
+		// Parse optional fields for results
+		if position, ok := raw["position"].(string); ok {
+			pin.Position = position
+		}
+		if team, ok := raw["team"].(string); ok {
+			pin.Team = team
+		}
+		if number, ok := raw["number"].(string); ok {
+			pin.Number = number
+		}
+		if end, ok := raw["end"].(string); ok {
+			pin.End = end
+		}
 
 		// Parse coordinates using unified function
 		// Try multiple possible coordinate fields
@@ -340,7 +362,7 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 
 	var state, svgLink, mapMainImage, mapCoverImage, mainBgImage, mapFullAddress, mapPngLink, parentLocationID, geojson, zoom sql.NullString
 	var rating sql.NullFloat64
-	var boardsJSON, coordinatesJSON, landmarksJSON, businessJSON, hospitalityJSON, eventsJSON, psaJSON, sublocationsJSON, hotzonesJSON sql.NullString
+	var boardsJSON, coordinatesJSON, landmarksJSON, businessJSON, hospitalityJSON, eventsJSON, psaJSON, sublocationsJSON, hotzonesJSON, resultsJSON sql.NullString
 
 	err := row.Scan(
 		&loc.ID, &loc.Name, &loc.Country, &state, &loc.Description,
@@ -348,7 +370,7 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 		&mainBgImage, &mapFullAddress, &mapPngLink,
 		&boardsJSON, &coordinatesJSON, &landmarksJSON,
 		&parentLocationID, &businessJSON, &hospitalityJSON, &eventsJSON, &psaJSON,
-		&sublocationsJSON, &geojson, &hotzonesJSON, &zoom,
+		&sublocationsJSON, &geojson, &hotzonesJSON, &zoom, &resultsJSON,
 	)
 	if err != nil {
 		return Location{}, err
@@ -436,6 +458,12 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 	if hotzonesJSON.Valid && hotzonesJSON.String != "" {
 		loc.Hotzones = parsePinArray(hotzonesJSON.String, "hotzones")
 		log.Printf("Parsed %d hotzone pins for %s", len(loc.Hotzones), loc.ID)
+	}
+
+	// Parse results array
+	if resultsJSON.Valid && resultsJSON.String != "" {
+		loc.Results = parsePinArray(resultsJSON.String, "results")
+		log.Printf("Parsed %d result pins for %s", len(loc.Results), loc.ID)
 	}
 
 	// Parse sublocations
