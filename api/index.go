@@ -159,8 +159,6 @@ type Chart struct {
 	ChartData  interface{} `json:"chart_data"`
 }
 
-
-
 // Add to Data Structs section
 type Reporting struct {
 	ID                  int         `json:"id"`
@@ -186,6 +184,16 @@ type Mood struct {
 	ParentSublocationID string      `json:"parent_sublocation_id,omitempty"`
 }
 
+type Tag struct {
+	ID                  int         `json:"id"`
+	Item                string      `json:"item"`
+	Coordinates         *GeoPoint   `json:"coordinates"`
+	CreatedBy           string      `json:"created_by"`
+	CreatedAt           string      `json:"created_at"`
+	ParentLocationID    string      `json:"parent_location_id"`
+	ParentSublocationID string      `json:"parent_sublocation_id,omitempty"`
+	Type                string      `json:"type"`
+}
 
 // ====================================================================================
 // Application Service
@@ -605,7 +613,6 @@ func (s *AppService) GetChartsForLocation(ctx context.Context, locationID string
 
 // REPORTING AND MOODS FUNTIONS BEYOND HERE 
 
-
 func (s *AppService) CreateReporting(ctx context.Context, name, info, reportType, createdBy string, coordinates *GeoPoint, parentLocationID, parentSublocationID string) (Reporting, error) {
 	coordsJSON, err := json.Marshal(coordinates)
 	if err != nil {
@@ -817,7 +824,129 @@ func (s *AppService) DeleteMood(ctx context.Context, id int, userID string) (boo
 	return deleted, nil
 }
 
+// TAGS FUNCTIONS
 
+func (s *AppService) CreateTag(ctx context.Context, item, createdBy string, coordinates *GeoPoint, parentLocationID, parentSublocationID, tagType string) (Tag, error) {
+	coordsJSON, err := json.Marshal(coordinates)
+	if err != nil {
+		return Tag{}, fmt.Errorf("failed to marshal coordinates: %w", err)
+	}
+
+	var tag Tag
+	var coordsStr sql.NullString
+	var sublocationID sql.NullString
+	var createdAt sql.NullString
+
+	err = s.db.QueryRow(ctx,
+		"SELECT * FROM create_tag($1, $2, $3, $4, $5, $6);",
+		item, string(coordsJSON), createdBy, parentLocationID,
+		sql.NullString{String: parentSublocationID, Valid: parentSublocationID != ""}, tagType,
+	).Scan(&tag.ID, &tag.Item, &coordsStr, &tag.CreatedBy, 
+		&createdAt, &tag.ParentLocationID, &sublocationID, &tag.Type)
+
+	if err != nil {
+		return Tag{}, fmt.Errorf("failed to create tag: %w", err)
+	}
+
+	if coordsStr.Valid && coordsStr.String != "" {
+		if parsedCoords, err := parseMainCoordinates(coordsStr.String); err == nil {
+			tag.Coordinates = parsedCoords
+		}
+	}
+
+	if createdAt.Valid {
+		tag.CreatedAt = createdAt.String
+	}
+
+	if sublocationID.Valid {
+		tag.ParentSublocationID = sublocationID.String
+	}
+
+	return tag, nil
+}
+
+func (s *AppService) GetTagsByLocation(ctx context.Context, locationID string) ([]Tag, error) {
+	rows, err := s.db.Query(ctx, "SELECT * FROM get_tags_by_location($1);", locationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tags: %w", err)
+	}
+	defer rows.Close()
+
+	var tags []Tag
+	for rows.Next() {
+		var t Tag
+		var coordsStr sql.NullString
+		var sublocationID sql.NullString
+		var createdAt sql.NullString
+
+		err := rows.Scan(&t.ID, &t.Item, &coordsStr, &t.CreatedBy,
+			&createdAt, &t.ParentLocationID, &sublocationID, &t.Type)
+		if err != nil {
+			log.Printf("Warning: failed to scan tag row: %v", err)
+			continue
+		}
+
+		if coordsStr.Valid && coordsStr.String != "" {
+			if parsedCoords, err := parseMainCoordinates(coordsStr.String); err == nil {
+				t.Coordinates = parsedCoords
+			}
+		}
+
+		if createdAt.Valid {
+			t.CreatedAt = createdAt.String
+		}
+
+		if sublocationID.Valid {
+			t.ParentSublocationID = sublocationID.String
+		}
+
+		tags = append(tags, t)
+	}
+
+	return tags, nil
+}
+
+func (s *AppService) DeleteTag(ctx context.Context, id int, userID string) (bool, error) {
+	var deleted bool
+	err := s.db.QueryRow(ctx, "SELECT delete_tag($1, $2);", id, userID).Scan(&deleted)
+	if err != nil {
+		return false, fmt.Errorf("failed to delete tag: %w", err)
+	}
+	return deleted, nil
+}
+
+func (s *AppService) EditTag(ctx context.Context, id int, userID, item, tagType string) (Tag, error) {
+	var t Tag
+	var coordsStr sql.NullString
+	var sublocationID sql.NullString
+	var createdAt sql.NullString
+
+	err := s.db.QueryRow(ctx,
+		"SELECT * FROM edit_tag($1, $2, $3, $4);",
+		id, userID, item, tagType,
+	).Scan(&t.ID, &t.Item, &coordsStr, &t.CreatedBy,
+		&createdAt, &t.ParentLocationID, &sublocationID, &t.Type)
+
+	if err != nil {
+		return Tag{}, fmt.Errorf("failed to edit tag: %w", err)
+	}
+
+	if coordsStr.Valid && coordsStr.String != "" {
+		if parsedCoords, err := parseMainCoordinates(coordsStr.String); err == nil {
+			t.Coordinates = parsedCoords
+		}
+	}
+
+	if createdAt.Valid {
+		t.CreatedAt = createdAt.String
+	}
+
+	if sublocationID.Valid {
+		t.ParentSublocationID = sublocationID.String
+	}
+
+	return t, nil
+}
 
 // ====================================================================================
 // User Logging and Rate Limiting Helpers
@@ -1021,8 +1150,52 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 		}
 		resultData, processingError = service.DeleteMood(ctx, params.ID, uid)
 
+	case "createTag":
+		var params struct {
+			Item                string   `json:"item"`
+			Coordinates         GeoPoint `json:"coordinates"`
+			ParentLocationID    string   `json:"parentLocationId"`
+			ParentSublocationID string   `json:"parentSublocationId"`
+			Type                string   `json:"type"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil || params.Item == "" {
+			processingError = fmt.Errorf("missing or invalid parameters")
+			break
+		}
+		resultData, processingError = service.CreateTag(ctx, params.Item, uid, &params.Coordinates, params.ParentLocationID, params.ParentSublocationID, params.Type)
 
-		
+	case "getTagsByLocation":
+		var params struct {
+			LocationID string `json:"locationId"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil || params.LocationID == "" {
+			processingError = fmt.Errorf("missing or invalid 'locationId' parameter")
+			break
+		}
+		resultData, processingError = service.GetTagsByLocation(ctx, params.LocationID)
+
+	case "deleteTag":
+		var params struct {
+			ID int `json:"id"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			processingError = fmt.Errorf("missing or invalid 'id' parameter")
+			break
+		}
+		resultData, processingError = service.DeleteTag(ctx, params.ID, uid)
+
+	case "editTag":
+		var params struct {
+			ID   int    `json:"id"`
+			Item string `json:"item"`
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			processingError = fmt.Errorf("missing or invalid parameters")
+			break
+		}
+		resultData, processingError = service.EditTag(ctx, params.ID, uid, params.Item, params.Type)
+
 	default:
 		processingError = fmt.Errorf("method not found: %s", req.Method)
 	}
