@@ -948,6 +948,93 @@ func (s *AppService) EditTag(ctx context.Context, id int, userID, item, tagType 
 	return t, nil
 }
 
+
+
+
+func (s *AppService) CreatePinForColumn(ctx context.Context, locationID, column string, pinData map[string]interface{}) (map[string]interface{}, error) {
+	pinDataJSON, err := json.Marshal(pinData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal pin data: %w", err)
+	}
+
+	var result string
+	err = s.db.QueryRow(ctx,
+		"SELECT create_pin_for_column($1, $2, $3);",
+		locationID, column, string(pinDataJSON),
+	).Scan(&result)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pin: %w", err)
+	}
+
+	var resultData map[string]interface{}
+	if err := json.Unmarshal([]byte(result), &resultData); err != nil {
+		return nil, fmt.Errorf("failed to parse result: %w", err)
+	}
+
+	return resultData, nil
+}
+
+func (s *AppService) UpdatePinOfColumn(ctx context.Context, locationID, column string, pinIndex int, pinData map[string]interface{}) (map[string]interface{}, error) {
+	pinDataJSON, err := json.Marshal(pinData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal pin data: %w", err)
+	}
+
+	var result string
+	err = s.db.QueryRow(ctx,
+		"SELECT update_pin_of_column($1, $2, $3, $4);",
+		locationID, column, pinIndex, string(pinDataJSON),
+	).Scan(&result)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to update pin: %w", err)
+	}
+
+	var resultData map[string]interface{}
+	if err := json.Unmarshal([]byte(result), &resultData); err != nil {
+		return nil, fmt.Errorf("failed to parse result: %w", err)
+	}
+
+	return resultData, nil
+}
+
+func (s *AppService) DeletePinOfColumn(ctx context.Context, locationID, column string, pinIndex int) (bool, error) {
+	var deleted bool
+	err := s.db.QueryRow(ctx,
+		"SELECT delete_pin_of_column($1, $2, $3);",
+		locationID, column, pinIndex,
+	).Scan(&deleted)
+
+	if err != nil {
+		return false, fmt.Errorf("failed to delete pin: %w", err)
+	}
+
+	return deleted, nil
+}
+
+func (s *AppService) GetPinsForColumn(ctx context.Context, locationID, column string) ([]map[string]interface{}, error) {
+	var result string
+	err := s.db.QueryRow(ctx,
+		"SELECT get_pins_for_column($1, $2);",
+		locationID, column,
+	).Scan(&result)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pins: %w", err)
+	}
+
+	var pins []map[string]interface{}
+	if err := json.Unmarshal([]byte(result), &pins); err != nil {
+		return nil, fmt.Errorf("failed to parse pins: %w", err)
+	}
+
+	return pins, nil
+}
+
+
+
+
 // ====================================================================================
 // User Logging and Rate Limiting Helpers
 // ====================================================================================
@@ -1195,6 +1282,58 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		resultData, processingError = service.EditTag(ctx, params.ID, uid, params.Item, params.Type)
+
+
+	case "createPinForColumn":
+		var params struct {
+			LocationID string                 `json:"locationId"`
+			Column     string                 `json:"column"`
+			PinData    map[string]interface{} `json:"pinData"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil || params.LocationID == "" || params.Column == "" {
+			processingError = fmt.Errorf("missing or invalid parameters")
+			break
+		}
+		resultData, processingError = service.CreatePinForColumn(ctx, params.LocationID, params.Column, params.PinData)
+
+	case "updatePinOfColumn":
+		var params struct {
+			LocationID string                 `json:"locationId"`
+			Column     string                 `json:"column"`
+			PinIndex   int                    `json:"pinIndex"`
+			PinData    map[string]interface{} `json:"pinData"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil || params.LocationID == "" || params.Column == "" {
+			processingError = fmt.Errorf("missing or invalid parameters")
+			break
+		}
+		resultData, processingError = service.UpdatePinOfColumn(ctx, params.LocationID, params.Column, params.PinIndex, params.PinData)
+
+	case "deletePinOfColumn":
+		var params struct {
+			LocationID string `json:"locationId"`
+			Column     string `json:"column"`
+			PinIndex   int    `json:"pinIndex"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil || params.LocationID == "" || params.Column == "" {
+			processingError = fmt.Errorf("missing or invalid parameters")
+			break
+		}
+		resultData, processingError = service.DeletePinOfColumn(ctx, params.LocationID, params.Column, params.PinIndex)
+
+	case "getPinsForColumn":
+		var params struct {
+			LocationID string `json:"locationId"`
+			Column     string `json:"column"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil || params.LocationID == "" || params.Column == "" {
+			processingError = fmt.Errorf("missing or invalid parameters")
+			break
+		}
+		resultData, processingError = service.GetPinsForColumn(ctx, params.LocationID, params.Column)
+
+
+		
 
 	default:
 		processingError = fmt.Errorf("method not found: %s", req.Method)
