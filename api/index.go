@@ -1091,9 +1091,15 @@ func (s *AppService) CreateSublocation(ctx context.Context, id, name, info, svgP
 }
 
 func (s *AppService) GetSublocationsByLocation(ctx context.Context, parentLocationID string) ([]SublocationData, error) {
+	// Validate input
+	if parentLocationID == "" {
+		return []SublocationData{}, fmt.Errorf("parentLocationID cannot be empty")
+	}
+
 	rows, err := s.db.Query(ctx, "SELECT * FROM get_sublocations_by_location($1);", parentLocationID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get sublocations: %w", err)
+		log.Printf("Database query failed for parentLocationID %s: %v", parentLocationID, err)
+		return []SublocationData{}, fmt.Errorf("failed to get sublocations: %w", err)
 	}
 	defer rows.Close()
 
@@ -1110,10 +1116,18 @@ func (s *AppService) GetSublocationsByLocation(ctx context.Context, parentLocati
 			continue
 		}
 
+		// Parse coordinates safely
 		if coordsStr.Valid && coordsStr.String != "" {
 			if parsedCoords, err := parseMainCoordinates(coordsStr.String); err == nil {
 				subloc.Coordinates = parsedCoords
+			} else {
+				log.Printf("Warning: failed to parse coordinates for sublocation %s: %v", subloc.ID, err)
+				// Skip sublocations with invalid coordinates
+				continue
 			}
+		} else {
+			log.Printf("Warning: sublocation %s has no coordinates", subloc.ID)
+			continue
 		}
 
 		if infoStr.Valid {
@@ -1129,6 +1143,13 @@ func (s *AppService) GetSublocationsByLocation(ctx context.Context, parentLocati
 		sublocations = append(sublocations, subloc)
 	}
 
+	// Check for any errors that occurred during iteration
+	if err := rows.Err(); err != nil {
+		log.Printf("Error during row iteration: %v", err)
+		return []SublocationData{}, fmt.Errorf("error reading sublocation data: %w", err)
+	}
+
+	log.Printf("Successfully fetched %d sublocations for parentLocationID %s", len(sublocations), parentLocationID)
 	return sublocations, nil
 }
 
