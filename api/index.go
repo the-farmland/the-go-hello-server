@@ -1507,6 +1507,7 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 		}
 		resultData, processingError = service.CreateSublocation(ctx, params.ID, params.Name, params.Info, params.SvgPin, params.ParentLocationID, params.Zoom, params.Type, &params.Coordinates)
 
+// In your get_sublocations_by_location case in handleRpcRequest
 case "getSublocationsByLocation":
     var params struct {
         ParentLocationID string `json:"parentLocationId"`
@@ -1515,20 +1516,14 @@ case "getSublocationsByLocation":
         processingError = fmt.Errorf("missing or invalid 'parentLocationId' parameter")
         break
     }
+    resultData, processingError = service.GetSublocationsByLocation(ctx, params.ParentLocationID)
     
-    // Get the sublocations
-    sublocations, err := service.GetSublocationsByLocation(ctx, params.ParentLocationID)
-    if err != nil {
-        processingError = fmt.Errorf("failed to fetch sublocations: %w", err)
-        break
+    // Ensure we always return an array, not nil
+    if sublocations, ok := resultData.([]SublocationData); ok {
+        if sublocations == nil {
+            resultData = []SublocationData{}
+        }
     }
-    
-    // Ensure we return an empty array instead of null if no results
-    if sublocations == nil {
-        sublocations = []SublocationData{}
-    }
-    
-    resultData = sublocations
 
 	case "updateSublocation":
 		var params struct {
