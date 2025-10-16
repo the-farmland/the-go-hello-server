@@ -195,15 +195,15 @@ type Tag struct {
 	Type                string      `json:"type"`
 }
 
-type SublocationCRUD struct {
-	ID               string    `json:"id"`
-	Name             string    `json:"name"`
-	Info             string    `json:"info"`
-	Coordinates      *GeoPoint `json:"coordinates"`
-	SvgPin           string    `json:"svgpin"`
-	ParentLocationID string    `json:"parent_location_id"`
-	Zoom             string    `json:"zoom"`
-	Type             string    `json:"type"`
+type SublocationData struct {
+	ID                string    `json:"id"`
+	Name              string    `json:"name"`
+	Info              string    `json:"info"`
+	Coordinates       *GeoPoint `json:"coordinates"`
+	SvgPin            string    `json:"svgpin"`
+	ParentLocationID  string    `json:"parent_location_id"`
+	Zoom              string    `json:"zoom"`
+	Type              string    `json:"type"`
 }
 
 // ====================================================================================
@@ -1045,25 +1045,30 @@ func (s *AppService) GetPinsForColumn(ctx context.Context, locationID, column st
 
 
 // ----------------------- SUBLOCAITONS /////////////////////////////////////// 
-// SUBLOCATION FUNCTIONS
-
-func (s *AppService) CreateSublocation(ctx context.Context, id, name, info, svgpin, parentLocationID, zoom, sublocationtype string, coordinates *GeoPoint) (SublocationCRUD, error) {
+func (s *AppService) CreateSublocation(ctx context.Context, id, name, info, svgPin, parentLocationID, zoom, sublType string, coordinates *GeoPoint) (SublocationData, error) {
 	coordsJSON, err := json.Marshal(coordinates)
 	if err != nil {
-		return SublocationCRUD{}, fmt.Errorf("failed to marshal coordinates: %w", err)
+		return SublocationData{}, fmt.Errorf("failed to marshal coordinates: %w", err)
 	}
 
-	var sublocation SublocationCRUD
+	var sublocation SublocationData
 	var coordsStr sql.NullString
+	var infoStr, svgPinStr, zoomStr sql.NullString
 
 	err = s.db.QueryRow(ctx,
 		"SELECT * FROM create_sublocation($1, $2, $3, $4, $5, $6, $7, $8);",
-		id, name, info, string(coordsJSON), svgpin, parentLocationID, zoom, sublocationtype,
-	).Scan(&sublocation.ID, &sublocation.Name, &sublocation.Info, &coordsStr, 
-		&sublocation.SvgPin, &sublocation.ParentLocationID, &sublocation.Zoom, &sublocation.Type)
+		id, name, 
+		sql.NullString{String: info, Valid: info != ""}, 
+		string(coordsJSON), 
+		sql.NullString{String: svgPin, Valid: svgPin != ""}, 
+		parentLocationID,
+		sql.NullString{String: zoom, Valid: zoom != ""},
+		sublType,
+	).Scan(&sublocation.ID, &sublocation.Name, &infoStr, &coordsStr, 
+		&svgPinStr, &sublocation.ParentLocationID, &zoomStr, &sublocation.Type)
 
 	if err != nil {
-		return SublocationCRUD{}, fmt.Errorf("failed to create sublocation: %w", err)
+		return SublocationData{}, fmt.Errorf("failed to create sublocation: %w", err)
 	}
 
 	if coordsStr.Valid && coordsStr.String != "" {
@@ -1072,60 +1077,34 @@ func (s *AppService) CreateSublocation(ctx context.Context, id, name, info, svgp
 		}
 	}
 
-	return sublocation, nil
-}
-
-func (s *AppService) UpdateSublocation(ctx context.Context, id, name, info, svgpin, zoom, sublocationtype string, coordinates *GeoPoint) (SublocationCRUD, error) {
-	coordsJSON, err := json.Marshal(coordinates)
-	if err != nil {
-		return SublocationCRUD{}, fmt.Errorf("failed to marshal coordinates: %w", err)
+	if infoStr.Valid {
+		sublocation.Info = infoStr.String
 	}
-
-	var sublocation SublocationCRUD
-	var coordsStr sql.NullString
-
-	err = s.db.QueryRow(ctx,
-		"SELECT * FROM update_sublocation($1, $2, $3, $4, $5, $6, $7);",
-		id, name, info, string(coordsJSON), svgpin, zoom, sublocationtype,
-	).Scan(&sublocation.ID, &sublocation.Name, &sublocation.Info, &coordsStr,
-		&sublocation.SvgPin, &sublocation.ParentLocationID, &sublocation.Zoom, &sublocation.Type)
-
-	if err != nil {
-		return SublocationCRUD{}, fmt.Errorf("failed to update sublocation: %w", err)
+	if svgPinStr.Valid {
+		sublocation.SvgPin = svgPinStr.String
 	}
-
-	if coordsStr.Valid && coordsStr.String != "" {
-		if parsedCoords, err := parseMainCoordinates(coordsStr.String); err == nil {
-			sublocation.Coordinates = parsedCoords
-		}
+	if zoomStr.Valid {
+		sublocation.Zoom = zoomStr.String
 	}
 
 	return sublocation, nil
 }
 
-func (s *AppService) DeleteSublocation(ctx context.Context, id string) (bool, error) {
-	var deleted bool
-	err := s.db.QueryRow(ctx, "SELECT delete_sublocation($1);", id).Scan(&deleted)
-	if err != nil {
-		return false, fmt.Errorf("failed to delete sublocation: %w", err)
-	}
-	return deleted, nil
-}
-
-func (s *AppService) GetSublocationsByLocation(ctx context.Context, parentLocationID string) ([]SublocationCRUD, error) {
+func (s *AppService) GetSublocationsByLocation(ctx context.Context, parentLocationID string) ([]SublocationData, error) {
 	rows, err := s.db.Query(ctx, "SELECT * FROM get_sublocations_by_location($1);", parentLocationID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sublocations: %w", err)
 	}
 	defer rows.Close()
 
-	var sublocations []SublocationCRUD
+	var sublocations []SublocationData
 	for rows.Next() {
-		var s SublocationCRUD
+		var s SublocationData
 		var coordsStr sql.NullString
+		var infoStr, svgPinStr, zoomStr sql.NullString
 
-		err := rows.Scan(&s.ID, &s.Name, &s.Info, &coordsStr, &s.SvgPin,
-			&s.ParentLocationID, &s.Zoom, &s.Type)
+		err := rows.Scan(&s.ID, &s.Name, &infoStr, &coordsStr, 
+			&svgPinStr, &s.ParentLocationID, &zoomStr, &s.Type)
 		if err != nil {
 			log.Printf("Warning: failed to scan sublocation row: %v", err)
 			continue
@@ -1137,11 +1116,69 @@ func (s *AppService) GetSublocationsByLocation(ctx context.Context, parentLocati
 			}
 		}
 
+		if infoStr.Valid {
+			s.Info = infoStr.String
+		}
+		if svgPinStr.Valid {
+			s.SvgPin = svgPinStr.String
+		}
+		if zoomStr.Valid {
+			s.Zoom = zoomStr.String
+		}
+
 		sublocations = append(sublocations, s)
 	}
 
 	return sublocations, nil
 }
+
+func (s *AppService) UpdateSublocation(ctx context.Context, id, name, info, svgPin, zoom, sublType string) (SublocationData, error) {
+	var s SublocationData
+	var coordsStr sql.NullString
+	var infoStr, svgPinStr, zoomStr sql.NullString
+
+	err := s.db.QueryRow(ctx,
+		"SELECT * FROM update_sublocation($1, $2, $3, $4, $5, $6);",
+		id, name, 
+		sql.NullString{String: info, Valid: info != ""}, 
+		sql.NullString{String: svgPin, Valid: svgPin != ""}, 
+		sql.NullString{String: zoom, Valid: zoom != ""}, 
+		sublType,
+	).Scan(&s.ID, &s.Name, &infoStr, &coordsStr, 
+		&svgPinStr, &s.ParentLocationID, &zoomStr, &s.Type)
+
+	if err != nil {
+		return SublocationData{}, fmt.Errorf("failed to update sublocation: %w", err)
+	}
+
+	if coordsStr.Valid && coordsStr.String != "" {
+		if parsedCoords, err := parseMainCoordinates(coordsStr.String); err == nil {
+			s.Coordinates = parsedCoords
+		}
+	}
+
+	if infoStr.Valid {
+		s.Info = infoStr.String
+	}
+	if svgPinStr.Valid {
+		s.SvgPin = svgPinStr.String
+	}
+	if zoomStr.Valid {
+		s.Zoom = zoomStr.String
+	}
+
+	return s, nil
+}
+
+func (s *AppService) DeleteSublocation(ctx context.Context, id string) (bool, error) {
+	var deleted bool
+	err := s.db.QueryRow(ctx, "SELECT delete_sublocation($1);", id).Scan(&deleted)
+	if err != nil {
+		return false, fmt.Errorf("failed to delete sublocation: %w", err)
+	}
+	return deleted, nil
+}
+
 
 // ====================================================================================
 // User Logging and Rate Limiting Helpers
@@ -1445,7 +1482,8 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 
 
 // -------------------------------------SUBLOCATIONS ------------------------------------
-case "createSublocation":
+
+	case "createSublocation":
 		var params struct {
 			ID               string   `json:"id"`
 			Name             string   `json:"name"`
@@ -1456,37 +1494,11 @@ case "createSublocation":
 			Type             string   `json:"type"`
 			Coordinates      GeoPoint `json:"coordinates"`
 		}
-		if err := json.Unmarshal(req.Params, &params); err != nil || params.ID == "" || params.Name == "" {
+		if err := json.Unmarshal(req.Params, &params); err != nil || params.ID == "" || params.Name == "" || params.ParentLocationID == "" {
 			processingError = fmt.Errorf("missing or invalid parameters")
 			break
 		}
 		resultData, processingError = service.CreateSublocation(ctx, params.ID, params.Name, params.Info, params.SvgPin, params.ParentLocationID, params.Zoom, params.Type, &params.Coordinates)
-
-	case "updateSublocation":
-		var params struct {
-			ID          string   `json:"id"`
-			Name        string   `json:"name"`
-			Info        string   `json:"info"`
-			SvgPin      string   `json:"svgpin"`
-			Zoom        string   `json:"zoom"`
-			Type        string   `json:"type"`
-			Coordinates GeoPoint `json:"coordinates"`
-		}
-		if err := json.Unmarshal(req.Params, &params); err != nil || params.ID == "" {
-			processingError = fmt.Errorf("missing or invalid parameters")
-			break
-		}
-		resultData, processingError = service.UpdateSublocation(ctx, params.ID, params.Name, params.Info, params.SvgPin, params.Zoom, params.Type, &params.Coordinates)
-
-	case "deleteSublocation":
-		var params struct {
-			ID string `json:"id"`
-		}
-		if err := json.Unmarshal(req.Params, &params); err != nil || params.ID == "" {
-			processingError = fmt.Errorf("missing or invalid 'id' parameter")
-			break
-		}
-		resultData, processingError = service.DeleteSublocation(ctx, params.ID)
 
 	case "getSublocationsByLocation":
 		var params struct {
@@ -1497,6 +1509,31 @@ case "createSublocation":
 			break
 		}
 		resultData, processingError = service.GetSublocationsByLocation(ctx, params.ParentLocationID)
+
+	case "updateSublocation":
+		var params struct {
+			ID     string `json:"id"`
+			Name   string `json:"name"`
+			Info   string `json:"info"`
+			SvgPin string `json:"svgpin"`
+			Zoom   string `json:"zoom"`
+			Type   string `json:"type"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil || params.ID == "" {
+			processingError = fmt.Errorf("missing or invalid parameters")
+			break
+		}
+		resultData, processingError = service.UpdateSublocation(ctx, params.ID, params.Name, params.Info, params.SvgPin, params.Zoom, params.Type)
+
+	case "deleteSublocation":
+		var params struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil || params.ID == "" {
+			processingError = fmt.Errorf("missing or invalid 'id' parameter")
+			break
+		}
+		resultData, processingError = service.DeleteSublocation(ctx, params.ID)
 		// -------------------------- SUBLOCTIONS -------------------------------------------
 
 		
