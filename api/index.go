@@ -1099,12 +1099,12 @@ func (s *AppService) GetSublocationsByLocation(ctx context.Context, parentLocati
 
 	var sublocations []SublocationData
 	for rows.Next() {
-		var s SublocationData
+		var subloc SublocationData
 		var coordsStr sql.NullString
 		var infoStr, svgPinStr, zoomStr sql.NullString
 
-		err := rows.Scan(&s.ID, &s.Name, &infoStr, &coordsStr, 
-			&svgPinStr, &s.ParentLocationID, &zoomStr, &s.Type)
+		err := rows.Scan(&subloc.ID, &subloc.Name, &infoStr, &coordsStr, 
+			&svgPinStr, &subloc.ParentLocationID, &zoomStr, &subloc.Type)
 		if err != nil {
 			log.Printf("Warning: failed to scan sublocation row: %v", err)
 			continue
@@ -1112,28 +1112,28 @@ func (s *AppService) GetSublocationsByLocation(ctx context.Context, parentLocati
 
 		if coordsStr.Valid && coordsStr.String != "" {
 			if parsedCoords, err := parseMainCoordinates(coordsStr.String); err == nil {
-				s.Coordinates = parsedCoords
+				subloc.Coordinates = parsedCoords
 			}
 		}
 
 		if infoStr.Valid {
-			s.Info = infoStr.String
+			subloc.Info = infoStr.String
 		}
 		if svgPinStr.Valid {
-			s.SvgPin = svgPinStr.String
+			subloc.SvgPin = svgPinStr.String
 		}
 		if zoomStr.Valid {
-			s.Zoom = zoomStr.String
+			subloc.Zoom = zoomStr.String
 		}
 
-		sublocations = append(sublocations, s)
+		sublocations = append(sublocations, subloc)
 	}
 
 	return sublocations, nil
 }
 
 func (s *AppService) UpdateSublocation(ctx context.Context, id, name, info, svgPin, zoom, sublType string) (SublocationData, error) {
-	var s SublocationData
+	var subloc SublocationData
 	var coordsStr sql.NullString
 	var infoStr, svgPinStr, zoomStr sql.NullString
 
@@ -1144,8 +1144,8 @@ func (s *AppService) UpdateSublocation(ctx context.Context, id, name, info, svgP
 		sql.NullString{String: svgPin, Valid: svgPin != ""}, 
 		sql.NullString{String: zoom, Valid: zoom != ""}, 
 		sublType,
-	).Scan(&s.ID, &s.Name, &infoStr, &coordsStr, 
-		&svgPinStr, &s.ParentLocationID, &zoomStr, &s.Type)
+	).Scan(&subloc.ID, &subloc.Name, &infoStr, &coordsStr, 
+		&svgPinStr, &subloc.ParentLocationID, &zoomStr, &subloc.Type)
 
 	if err != nil {
 		return SublocationData{}, fmt.Errorf("failed to update sublocation: %w", err)
@@ -1153,21 +1153,21 @@ func (s *AppService) UpdateSublocation(ctx context.Context, id, name, info, svgP
 
 	if coordsStr.Valid && coordsStr.String != "" {
 		if parsedCoords, err := parseMainCoordinates(coordsStr.String); err == nil {
-			s.Coordinates = parsedCoords
+			subloc.Coordinates = parsedCoords
 		}
 	}
 
 	if infoStr.Valid {
-		s.Info = infoStr.String
+		subloc.Info = infoStr.String
 	}
 	if svgPinStr.Valid {
-		s.SvgPin = svgPinStr.String
+		subloc.SvgPin = svgPinStr.String
 	}
 	if zoomStr.Valid {
-		s.Zoom = zoomStr.String
+		subloc.Zoom = zoomStr.String
 	}
 
-	return s, nil
+	return subloc, nil
 }
 
 func (s *AppService) DeleteSublocation(ctx context.Context, id string) (bool, error) {
