@@ -814,3 +814,116 @@ BEGIN
               tags.created_at, tags.parent_location_id, tags.parent_sublocation_id, tags.type;
 END;
 $$;
+
+-- Add type column to sublocations table
+ALTER TABLE public.sublocations ADD COLUMN IF NOT EXISTS type text DEFAULT 'island';
+
+-- Create index for the new type column
+CREATE INDEX IF NOT EXISTS idx_sublocations_type ON public.sublocations USING btree (type);
+
+-- Function to create a new sublocation
+CREATE OR REPLACE FUNCTION create_sublocation(
+    p_id TEXT,
+    p_name TEXT,
+    p_info TEXT,
+    p_coordinates JSONB,
+    p_svgpin TEXT,
+    p_parent_location_id TEXT,
+    p_zoom TEXT DEFAULT NULL,
+    p_type TEXT DEFAULT 'island'
+)
+RETURNS TABLE(
+    id TEXT,
+    name TEXT,
+    info TEXT,
+    coordinates JSONB,
+    svgpin TEXT,
+    parent_location_id TEXT,
+    zoom TEXT,
+    type TEXT
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    INSERT INTO sublocations (id, name, info, coordinates, svgpin, parent_location_id, zoom, type)
+    VALUES (p_id, p_name, p_info, p_coordinates, p_svgpin, p_parent_location_id, p_zoom, p_type)
+    RETURNING sublocations.id, sublocations.name, sublocations.info, sublocations.coordinates, 
+              sublocations.svgpin, sublocations.parent_location_id, sublocations.zoom, sublocations.type;
+END;
+$$;
+
+-- Function to get sublocations by parent location
+CREATE OR REPLACE FUNCTION get_sublocations_by_location(p_parent_location_id TEXT)
+RETURNS TABLE(
+    id TEXT,
+    name TEXT,
+    info TEXT,
+    coordinates JSONB,
+    svgpin TEXT,
+    parent_location_id TEXT,
+    zoom TEXT,
+    type TEXT
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT s.id, s.name, s.info, s.coordinates, s.svgpin, s.parent_location_id, s.zoom, s.type
+    FROM sublocations s
+    WHERE s.parent_location_id = p_parent_location_id
+    ORDER BY s.name;
+END;
+$$;
+
+-- Function to update a sublocation
+CREATE OR REPLACE FUNCTION update_sublocation(
+    p_id TEXT,
+    p_name TEXT,
+    p_info TEXT,
+    p_svgpin TEXT,
+    p_zoom TEXT DEFAULT NULL,
+    p_type TEXT DEFAULT 'island'
+)
+RETURNS TABLE(
+    id TEXT,
+    name TEXT,
+    info TEXT,
+    coordinates JSONB,
+    svgpin TEXT,
+    parent_location_id TEXT,
+    zoom TEXT,
+    type TEXT
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    UPDATE sublocations
+    SET name = p_name,
+        info = p_info,
+        svgpin = p_svgpin,
+        zoom = p_zoom,
+        type = p_type
+    WHERE sublocations.id = p_id
+    RETURNING sublocations.id, sublocations.name, sublocations.info, sublocations.coordinates,
+              sublocations.svgpin, sublocations.parent_location_id, sublocations.zoom, sublocations.type;
+END;
+$$;
+
+-- Function to delete a sublocation
+CREATE OR REPLACE FUNCTION delete_sublocation(p_id TEXT)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    deleted BOOLEAN;
+BEGIN
+    DELETE FROM sublocations
+    WHERE id = p_id;
+    
+    deleted := FOUND;
+    RETURN deleted;
+END;
+$$;
+
