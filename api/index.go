@@ -197,7 +197,7 @@ type Tag struct {
 
 
 type CreateSublocationParams struct {
-    ID                text    `json:"id"`
+    ID                int    `json:"id"`
     Name              string  `json:"name"`
     Info              string  `json:"info"`
     Coordinates       GeoPoint `json:"coordinates"`
@@ -208,7 +208,7 @@ type CreateSublocationParams struct {
 }
 
 type UpdateSublocationParams struct {
-    ID           text    `json:"id"`
+    ID           int    `json:"id"`
     Name         string  `json:"name"`
     Info         string  `json:"info"`
     Coordinates  GeoPoint `json:"coordinates"`
