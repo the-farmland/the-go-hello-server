@@ -1091,19 +1091,13 @@ func (s *AppService) CreateSublocation(ctx context.Context, id, name, info, svgP
 }
 
 func (s *AppService) GetSublocationsByLocation(ctx context.Context, parentLocationID string) ([]SublocationData, error) {
-	// Validate input
-	if parentLocationID == "" {
-		return []SublocationData{}, fmt.Errorf("parentLocationID cannot be empty")
-	}
-
 	rows, err := s.db.Query(ctx, "SELECT * FROM get_sublocations_by_location($1);", parentLocationID)
 	if err != nil {
-		log.Printf("Database query failed for parentLocationID %s: %v", parentLocationID, err)
 		return []SublocationData{}, fmt.Errorf("failed to get sublocations: %w", err)
 	}
 	defer rows.Close()
 
-	var sublocations []SublocationData
+	var sublocations []SublocationData = []SublocationData{} // Initialize as empty slice instead of nil
 	for rows.Next() {
 		var subloc SublocationData
 		var coordsStr sql.NullString
@@ -1116,18 +1110,12 @@ func (s *AppService) GetSublocationsByLocation(ctx context.Context, parentLocati
 			continue
 		}
 
-		// Parse coordinates safely
 		if coordsStr.Valid && coordsStr.String != "" {
 			if parsedCoords, err := parseMainCoordinates(coordsStr.String); err == nil {
 				subloc.Coordinates = parsedCoords
 			} else {
 				log.Printf("Warning: failed to parse coordinates for sublocation %s: %v", subloc.ID, err)
-				// Skip sublocations with invalid coordinates
-				continue
 			}
-		} else {
-			log.Printf("Warning: sublocation %s has no coordinates", subloc.ID)
-			continue
 		}
 
 		if infoStr.Valid {
@@ -1143,13 +1131,11 @@ func (s *AppService) GetSublocationsByLocation(ctx context.Context, parentLocati
 		sublocations = append(sublocations, subloc)
 	}
 
-	// Check for any errors that occurred during iteration
 	if err := rows.Err(); err != nil {
-		log.Printf("Error during row iteration: %v", err)
-		return []SublocationData{}, fmt.Errorf("error reading sublocation data: %w", err)
+		log.Printf("Error iterating sublocation rows: %v", err)
+		return []SublocationData{}, fmt.Errorf("error iterating rows: %w", err)
 	}
 
-	log.Printf("Successfully fetched %d sublocations for parentLocationID %s", len(sublocations), parentLocationID)
 	return sublocations, nil
 }
 
@@ -1521,15 +1507,28 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 		}
 		resultData, processingError = service.CreateSublocation(ctx, params.ID, params.Name, params.Info, params.SvgPin, params.ParentLocationID, params.Zoom, params.Type, &params.Coordinates)
 
-	case "getSublocationsByLocation":
-		var params struct {
-			ParentLocationID string `json:"parentLocationId"`
-		}
-		if err := json.Unmarshal(req.Params, &params); err != nil || params.ParentLocationID == "" {
-			processingError = fmt.Errorf("missing or invalid 'parentLocationId' parameter")
-			break
-		}
-		resultData, processingError = service.GetSublocationsByLocation(ctx, params.ParentLocationID)
+case "getSublocationsByLocation":
+    var params struct {
+        ParentLocationID string `json:"parentLocationId"`
+    }
+    if err := json.Unmarshal(req.Params, &params); err != nil || params.ParentLocationID == "" {
+        processingError = fmt.Errorf("missing or invalid 'parentLocationId' parameter")
+        break
+    }
+    
+    // Get the sublocations
+    sublocations, err := service.GetSublocationsByLocation(ctx, params.ParentLocationID)
+    if err != nil {
+        processingError = fmt.Errorf("failed to fetch sublocations: %w", err)
+        break
+    }
+    
+    // Ensure we return an empty array instead of null if no results
+    if sublocations == nil {
+        sublocations = []SublocationData{}
+    }
+    
+    resultData = sublocations
 
 	case "updateSublocation":
 		var params struct {
