@@ -51,8 +51,10 @@ type GeoPoint struct {
 }
 
 type Pin struct {
+	ID       string  `json:"id"`        // NEW: Unique identifier for the pin
 	Name     string  `json:"name"`
 	PinLink  string  `json:"pinLink"`
+	PinImg   string  `json:"pinImg"`    // NEW: Image URL for the pin
 	Lon      float64 `json:"lon"`
 	Lat      float64 `json:"lat"`
 	Type     string  `json:"type"`
@@ -336,6 +338,11 @@ func parsePinArray(jsonStr string, pinType string) []Pin {
 	for idx, raw := range rawPins {
 		pin := Pin{}
 		
+		// Parse ID (NEW)
+		if id, ok := raw["id"].(string); ok {
+			pin.ID = id
+		}
+		
 		// Parse basic fields
 		if name, ok := raw["name"].(string); ok {
 			pin.Name = name
@@ -343,6 +350,12 @@ func parsePinArray(jsonStr string, pinType string) []Pin {
 		if pinLink, ok := raw["pinLink"].(string); ok {
 			pin.PinLink = pinLink
 		}
+		
+		// Parse PinImg (NEW)
+		if pinImg, ok := raw["pinImg"].(string); ok {
+			pin.PinImg = pinImg
+		}
+		
 		if pType, ok := raw["type"].(string); ok {
 			pin.Type = pType
 		}
@@ -355,7 +368,6 @@ func parsePinArray(jsonStr string, pinType string) []Pin {
 		if url, ok := raw["url"].(string); ok {
 			pin.URL = url
 		}
-		// Parse optional fields for results
 		if position, ok := raw["position"].(string); ok {
 			pin.Position = position
 		}
@@ -369,17 +381,14 @@ func parsePinArray(jsonStr string, pinType string) []Pin {
 			pin.End = end
 		}
 
-		// Parse coordinates using unified function
-		// Try multiple possible coordinate fields
+		// Parse coordinates
 		var lat, lon float64
 		var coordErr error
 
-		// First try "coordinates" field
 		if coords, ok := raw["coordinates"]; ok {
 			lat, lon, coordErr = parseAnyCoordinates(coords)
 		}
 
-		// If that fails, try direct lat/lon fields
 		if coordErr != nil || (lat == 0 && lon == 0) {
 			if latVal, hasLat := raw["lat"]; hasLat {
 				if lonVal, hasLon := raw["lon"]; hasLon {
@@ -403,6 +412,8 @@ func parsePinArray(jsonStr string, pinType string) []Pin {
 
 	return pins
 }
+
+
 
 func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 	var loc Location
