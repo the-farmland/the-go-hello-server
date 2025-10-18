@@ -372,7 +372,6 @@ $$;
 
 -- Replace the existing search_locations with this enhanced version
 
--- Update create_pin_for_column function
 CREATE OR REPLACE FUNCTION create_pin_for_column(location_id text, column_name text, pin_data jsonb)
 RETURNS jsonb AS $$
 DECLARE
@@ -381,7 +380,7 @@ DECLARE
   pin_id text;
 BEGIN
   -- Generate a unique ID for the pin if not provided
-  pin_id := COALESCE(pin_data->>'id', md5(pin_data->>'name' || '-' || pin_data->>'pinLink' || '-' || NOW()::text));
+  pin_id := COALESCE(pin_data->>'id', gen_random_uuid()::text);
   
   -- Add id to pin_data
   pin_with_id := pin_data || jsonb_build_object('id', pin_id);
@@ -391,13 +390,7 @@ BEGIN
     pin_with_id := pin_with_id || jsonb_build_object('pinImg', '');
   END IF;
 
-  -- Get current pins array and append new pin
-  new_pins := COALESCE(
-    (SELECT to_jsonb(column_name::text) FROM locations WHERE id = location_id),
-    '[]'::jsonb
-  );
-
-  -- Build the column name dynamically
+  -- Dynamically update the column
   EXECUTE format('
     UPDATE locations 
     SET %I = COALESCE(%I, ''[]''::jsonb) || $1
