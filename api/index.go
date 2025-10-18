@@ -1285,7 +1285,17 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 		}
 		resultData, processingError = service.GetLocationByID(ctx, params.ID)
 
-	case "searchLocations":
+		{/* case "searchLocations":
+		var params struct {
+			Query string `json:"query"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil || params.Query == "" {
+			processingError = fmt.Errorf("missing or invalid 'query' parameter")
+			break
+		}
+		resultData, processingError = service.SearchLocations(ctx, params.Query)    DISABLED AS FORMER TO seachLocaionsAdvanced*/}
+		
+		case "searchLocationsAdvanced":
 		var params struct {
 			Query string `json:"query"`
 		}
@@ -1294,6 +1304,7 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		resultData, processingError = service.SearchLocations(ctx, params.Query)
+		
 
 	case "getChartsForLocation":
 		var params struct {
