@@ -371,6 +371,92 @@ $$;
 
 
 -- Replace the existing search_locations with this enhanced version
+
+-- Update create_pin_for_column function
+CREATE OR REPLACE FUNCTION create_pin_for_column(location_id text, column_name text, pin_data jsonb)
+RETURNS jsonb AS $$
+DECLARE
+  pin_with_id jsonb;
+  new_pins jsonb;
+  pin_id text;
+BEGIN
+  -- Generate a unique ID for the pin if not provided
+  pin_id := COALESCE(pin_data->>'id', md5(pin_data->>'name' || '-' || pin_data->>'pinLink' || '-' || NOW()::text));
+  
+  -- Add id to pin_data
+  pin_with_id := pin_data || jsonb_build_object('id', pin_id);
+  
+  -- Add pinImg field if not present
+  IF NOT (pin_with_id ? 'pinImg') THEN
+    pin_with_id := pin_with_id || jsonb_build_object('pinImg', '');
+  END IF;
+
+  -- Get current pins array and append new pin
+  new_pins := COALESCE(
+    (SELECT to_jsonb(column_name::text) FROM locations WHERE id = location_id),
+    '[]'::jsonb
+  );
+
+  -- Build the column name dynamically
+  EXECUTE format('
+    UPDATE locations 
+    SET %I = COALESCE(%I, ''[]''::jsonb) || $1
+    WHERE id = $2
+    RETURNING %I
+  ', column_name, column_name, column_name)
+  USING jsonb_build_array(pin_with_id), location_id
+  INTO new_pins;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'pin_id', pin_id,
+    'message', 'Pin created successfully'
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+-- 5. Update update_pin_of_column function
+CREATE OR REPLACE FUNCTION update_pin_of_column(location_id text, column_name text, pin_index int, pin_data jsonb)
+RETURNS jsonb AS $$
+DECLARE
+  updated_pins jsonb;
+  existing_pin jsonb;
+  pin_id text;
+BEGIN
+  -- Get the existing pin to preserve its id
+  EXECUTE format('
+    SELECT ($1 ->> %L) FROM locations WHERE id = $2
+  ', pin_index)
+  INTO existing_pin
+  USING column_name, location_id;
+
+  -- Use existing pin_id or generate new one
+  pin_id := COALESCE(existing_pin->>'id', md5(pin_data->>'name' || '-' || pin_data->>'pinLink' || '-' || pin_index::text));
+
+  -- Merge pin_data with id
+  pin_data := pin_data || jsonb_build_object('id', pin_id);
+
+  -- Add pinImg field if not present
+  IF NOT (pin_data ? 'pinImg') THEN
+    pin_data := pin_data || jsonb_build_object('pinImg', '');
+  END IF;
+
+  EXECUTE format('
+    UPDATE locations
+    SET %I = jsonb_set(%I, ARRAY[%L], $1)
+    WHERE id = $2
+  ', column_name, column_name, pin_index)
+  USING pin_data, location_id;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'pin_id', pin_id,
+    'message', 'Pin updated successfully'
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+-- 6. Update search_locations to use id instead of pinLink
 CREATE OR REPLACE FUNCTION public.search_locations(search_query text)
 RETURNS TABLE(
     id text,
@@ -409,43 +495,43 @@ BEGIN
       'landmarks'::text AS col,
       p.idx,
       p.pin ->> 'name' AS pin_name,
-      p.pin ->> 'pinLink' AS pin_link
+      p.pin ->> 'id' AS pin_id
     FROM locations l
     CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.landmarks, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
     WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
        OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
   UNION ALL
-    SELECT l.id, 'business', p.idx, p.pin ->> 'name', p.pin ->> 'pinLink'
+    SELECT l.id, 'business', p.idx, p.pin ->> 'name', p.pin ->> 'id'
     FROM locations l
     CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.business, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
     WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
        OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
   UNION ALL
-    SELECT l.id, 'hospitality', p.idx, p.pin ->> 'name', p.pin ->> 'pinLink'
+    SELECT l.id, 'hospitality', p.idx, p.pin ->> 'name', p.pin ->> 'id'
     FROM locations l
     CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.hospitality, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
     WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
        OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
   UNION ALL
-    SELECT l.id, 'events', p.idx, p.pin ->> 'name', p.pin ->> 'pinLink'
+    SELECT l.id, 'events', p.idx, p.pin ->> 'name', p.pin ->> 'id'
     FROM locations l
     CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.events, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
     WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
        OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
   UNION ALL
-    SELECT l.id, 'psa', p.idx, p.pin ->> 'name', p.pin ->> 'pinLink'
+    SELECT l.id, 'psa', p.idx, p.pin ->> 'name', p.pin ->> 'id'
     FROM locations l
     CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.psa, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
     WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
        OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
   UNION ALL
-    SELECT l.id, 'hotzones', p.idx, p.pin ->> 'name', p.pin ->> 'pinLink'
+    SELECT l.id, 'hotzones', p.idx, p.pin ->> 'name', p.pin ->> 'id'
     FROM locations l
     CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.hotzones, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
     WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
        OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
   UNION ALL
-    SELECT l.id, 'results', p.idx, p.pin ->> 'name', p.pin ->> 'pinLink'
+    SELECT l.id, 'results', p.idx, p.pin ->> 'name', p.pin ->> 'id'
     FROM locations l
     CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.results, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
     WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
@@ -501,7 +587,6 @@ BEGIN
       l.geojson,
       l.hotzones,
       l.zoom,
-      -- results: embed two helper arrays to allow the frontend to route
       jsonb_build_array() ||
       COALESCE(
         (
@@ -509,7 +594,7 @@ BEGIN
             jsonb_build_object(
               'type', 'pin_match',
               'column', pm.col,
-              'pinLink', pm.pin_link,
+              'pinId', pm.pin_id,
               'name', pm.pin_name
             )
           )
@@ -540,6 +625,8 @@ BEGIN
   ORDER BY l.rating DESC NULLS LAST, l.name ASC;
 END;
 $$;
+
+
 
 -- Create moods table
 CREATE TABLE IF NOT EXISTS public.moods (
