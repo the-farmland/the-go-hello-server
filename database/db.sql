@@ -370,7 +370,7 @@ END;
 $$;
 
 
--- Updated search_locations function with results column
+-- Replace the existing search_locations with this enhanced version
 CREATE OR REPLACE FUNCTION public.search_locations(search_query text)
 RETURNS TABLE(
     id text,
@@ -402,67 +402,144 @@ RETURNS TABLE(
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    RETURN QUERY
-    SELECT 
-        l.id,
-        l.name,
-        l.country,
-        l.state,
-        l.description,
-        l.svg_link,
-        l.rating,
-        l.map_main_image,
-        l.map_cover_image,
-        l.main_background_image,
-        l.map_full_address,
-        l.map_png_link,
-        l.boards,
-        l.coordinates,
-        l.landmarks,
-        l.parent_location_id,
-        l.business,
-        l.hospitality,
-        l.events,
-        l.psa,
-        CASE 
-            WHEN EXISTS(SELECT 1 FROM sublocations WHERE sublocations.parent_location_id = l.id) THEN
-                jsonb_build_object(
-                    'all_sublocations', (
-                        SELECT jsonb_agg(
-                            jsonb_build_object(
-                                'id', sub.id,
-                                'name', sub.name,
-                                'info', sub.info,
-                                'coordinates', sub.coordinates,
-                                'svgpin', sub.svgpin,
-                                'zoom', sub.zoom
-                            )
-                        )
-                        FROM sublocations sub 
-                        WHERE sub.parent_location_id = l.id
-                    )
-                )
-            ELSE NULL
-        END as sublocations,
-        l.geojson,
-        l.hotzones,
-        l.zoom,
-        l.results
+  RETURN QUERY
+  WITH pin_match AS (
+    SELECT
+      l.id AS location_id,
+      'landmarks'::text AS col,
+      p.idx,
+      p.pin ->> 'name' AS pin_name,
+      p.pin ->> 'pinLink' AS pin_link
     FROM locations l
-    WHERE l.name ILIKE '%' || search_query || '%'
-       OR l.country ILIKE '%' || search_query || '%'
-       OR l.state ILIKE '%' || search_query || '%'
-       OR l.map_full_address ILIKE '%' || search_query || '%'
-       OR EXISTS (
-           SELECT 1 FROM sublocations s 
-           WHERE s.parent_location_id = l.id 
-           AND (s.name ILIKE '%' || search_query || '%' OR s.info ILIKE '%' || search_query || '%')
-       )
-    ORDER BY l.rating DESC NULLS LAST;
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.landmarks, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
+    WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
+       OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
+  UNION ALL
+    SELECT l.id, 'business', p.idx, p.pin ->> 'name', p.pin ->> 'pinLink'
+    FROM locations l
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.business, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
+    WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
+       OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
+  UNION ALL
+    SELECT l.id, 'hospitality', p.idx, p.pin ->> 'name', p.pin ->> 'pinLink'
+    FROM locations l
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.hospitality, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
+    WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
+       OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
+  UNION ALL
+    SELECT l.id, 'events', p.idx, p.pin ->> 'name', p.pin ->> 'pinLink'
+    FROM locations l
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.events, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
+    WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
+       OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
+  UNION ALL
+    SELECT l.id, 'psa', p.idx, p.pin ->> 'name', p.pin ->> 'pinLink'
+    FROM locations l
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.psa, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
+    WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
+       OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
+  UNION ALL
+    SELECT l.id, 'hotzones', p.idx, p.pin ->> 'name', p.pin ->> 'pinLink'
+    FROM locations l
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.hotzones, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
+    WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
+       OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
+  UNION ALL
+    SELECT l.id, 'results', p.idx, p.pin ->> 'name', p.pin ->> 'pinLink'
+    FROM locations l
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.results, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
+    WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
+       OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
+  ),
+  sub_match AS (
+    SELECT s.parent_location_id AS location_id, s.id AS sub_id
+    FROM sublocations s
+    WHERE s.name ILIKE '%' || search_query || '%'
+       OR s.info ILIKE '%' || search_query || '%'
+  )
+  SELECT 
+      l.id,
+      l.name,
+      l.country,
+      l.state,
+      l.description,
+      l.svg_link,
+      l.rating,
+      l.map_main_image,
+      l.map_cover_image,
+      l.main_background_image,
+      l.map_full_address,
+      l.map_png_link,
+      l.boards,
+      l.coordinates,
+      l.landmarks,
+      l.parent_location_id,
+      l.business,
+      l.hospitality,
+      l.events,
+      l.psa,
+      CASE 
+          WHEN EXISTS(SELECT 1 FROM sublocations WHERE sublocations.parent_location_id = l.id) THEN
+              jsonb_build_object(
+                  'all_sublocations', (
+                      SELECT jsonb_agg(
+                          jsonb_build_object(
+                              'id', sub.id,
+                              'name', sub.name,
+                              'info', sub.info,
+                              'coordinates', sub.coordinates,
+                              'svgpin', sub.svgpin,
+                              'zoom', sub.zoom
+                          )
+                      )
+                      FROM sublocations sub 
+                      WHERE sub.parent_location_id = l.id
+                  )
+              )
+          ELSE NULL
+      END as sublocations,
+      l.geojson,
+      l.hotzones,
+      l.zoom,
+      -- results: embed two helper arrays to allow the frontend to route
+      jsonb_build_array() ||
+      COALESCE(
+        (
+          SELECT jsonb_agg(
+            jsonb_build_object(
+              'type', 'pin_match',
+              'column', pm.col,
+              'pinLink', pm.pin_link,
+              'name', pm.pin_name
+            )
+          )
+          FROM pin_match pm
+          WHERE pm.location_id = l.id
+        ), '[]'::jsonb
+      ) ||
+      COALESCE(
+        (
+          SELECT jsonb_agg(
+            jsonb_build_object(
+              'type', 'sublocation_match',
+              'sublocation_id', sm.sub_id
+            )
+          )
+          FROM sub_match sm
+          WHERE sm.location_id = l.id
+        ), '[]'::jsonb
+      ) as results
+  FROM locations l
+  WHERE 
+       l.name ILIKE '%' || search_query || '%'
+    OR l.country ILIKE '%' || search_query || '%'
+    OR COALESCE(l.state, '') ILIKE '%' || search_query || '%'
+    OR COALESCE(l.map_full_address, '') ILIKE '%' || search_query || '%'
+    OR EXISTS (SELECT 1 FROM pin_match pm WHERE pm.location_id = l.id)
+    OR EXISTS (SELECT 1 FROM sub_match sm WHERE sm.location_id = l.id)
+  ORDER BY l.rating DESC NULLS LAST, l.name ASC;
 END;
 $$;
-
-
 
 -- Create moods table
 CREATE TABLE IF NOT EXISTS public.moods (
