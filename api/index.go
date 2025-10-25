@@ -1,4 +1,3 @@
-// File: api/index.go
 package handler
 
 import (
@@ -151,6 +150,13 @@ type Location struct {
 	Hotzones            []Pin             `json:"hotzones,omitempty"`
 	Zoom                string            `json:"zoom"`
 	Results             []Pin             `json:"results,omitempty"`
+	Drivers             []Pin             `json:"drivers,omitempty"`
+	Walker              []Pin             `json:"walker,omitempty"`
+	Transit             []Pin             `json:"transit,omitempty"`
+	Utilities           []Pin             `json:"utilities,omitempty"`
+	Manmade             []Pin             `json:"manmade,omitempty"`
+	Natural             []Pin             `json:"natural,omitempty"`
+	Municipal           []Pin             `json:"municipal,omitempty"`
 }
 
 type Chart struct {
@@ -421,6 +427,7 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 	var state, svgLink, mapMainImage, mapCoverImage, mainBgImage, mapFullAddress, mapPngLink, parentLocationID, geojson, zoom sql.NullString
 	var rating sql.NullFloat64
 	var boardsJSON, coordinatesJSON, landmarksJSON, businessJSON, hospitalityJSON, eventsJSON, psaJSON, sublocationsJSON, hotzonesJSON, resultsJSON sql.NullString
+	var driversJSON, walkerJSON, transitJSON, utilitiesJSON, manmadeJSON, naturalJSON, municipalJSON sql.NullString
 
 	err := row.Scan(
 		&loc.ID, &loc.Name, &loc.Country, &state, &loc.Description,
@@ -429,6 +436,7 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 		&boardsJSON, &coordinatesJSON, &landmarksJSON,
 		&parentLocationID, &businessJSON, &hospitalityJSON, &eventsJSON, &psaJSON,
 		&sublocationsJSON, &geojson, &hotzonesJSON, &zoom, &resultsJSON,
+		&driversJSON, &walkerJSON, &transitJSON, &utilitiesJSON, &manmadeJSON, &naturalJSON, &municipalJSON,
 	)
 	if err != nil {
 		return Location{}, err
@@ -522,6 +530,42 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 	if resultsJSON.Valid && resultsJSON.String != "" {
 		loc.Results = parsePinArray(resultsJSON.String, "results")
 		log.Printf("Parsed %d result pins for %s", len(loc.Results), loc.ID)
+	}
+
+	// Parse new columns
+	if driversJSON.Valid && driversJSON.String != "" {
+		loc.Drivers = parsePinArray(driversJSON.String, "drivers")
+		log.Printf("Parsed %d driver pins for %s", len(loc.Drivers), loc.ID)
+	}
+
+	if walkerJSON.Valid && walkerJSON.String != "" {
+		loc.Walker = parsePinArray(walkerJSON.String, "walker")
+		log.Printf("Parsed %d walker pins for %s", len(loc.Walker), loc.ID)
+	}
+
+	if transitJSON.Valid && transitJSON.String != "" {
+		loc.Transit = parsePinArray(transitJSON.String, "transit")
+		log.Printf("Parsed %d transit pins for %s", len(loc.Transit), loc.ID)
+	}
+
+	if utilitiesJSON.Valid && utilitiesJSON.String != "" {
+		loc.Utilities = parsePinArray(utilitiesJSON.String, "utilities")
+		log.Printf("Parsed %d utilities pins for %s", len(loc.Utilities), loc.ID)
+	}
+
+	if manmadeJSON.Valid && manmadeJSON.String != "" {
+		loc.Manmade = parsePinArray(manmadeJSON.String, "manmade")
+		log.Printf("Parsed %d manmade pins for %s", len(loc.Manmade), loc.ID)
+	}
+
+	if naturalJSON.Valid && naturalJSON.String != "" {
+		loc.Natural = parsePinArray(naturalJSON.String, "natural")
+		log.Printf("Parsed %d natural pins for %s", len(loc.Natural), loc.ID)
+	}
+
+	if municipalJSON.Valid && municipalJSON.String != "" {
+		loc.Municipal = parsePinArray(municipalJSON.String, "municipal")
+		log.Printf("Parsed %d municipal pins for %s", len(loc.Municipal), loc.ID)
 	}
 
 	// Parse sublocations
