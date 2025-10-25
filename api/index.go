@@ -41,33 +41,6 @@ func initDB() {
 }
 
 // ====================================================================================
-// CORS Middleware
-// ====================================================================================
-
-type CORSMiddleware struct {
-	next http.Handler
-}
-
-func NewCORSMiddleware(next http.Handler) *CORSMiddleware {
-	return &CORSMiddleware{next: next}
-}
-
-func (c *CORSMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, PATCH")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept")
-	w.Header().Set("Access-Control-Max-Age", "86400")
-	w.Header().Set("Content-Type", "application/json")
-
-	if r.Method == "OPTIONS" {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	c.next.ServeHTTP(w, r)
-}
-
-// ====================================================================================
 // Data Structs
 // ====================================================================================
 
@@ -78,10 +51,10 @@ type GeoPoint struct {
 }
 
 type Pin struct {
-	ID       string  `json:"id"`
+	ID       string  `json:"id"`        // NEW: Unique identifier for the pin
 	Name     string  `json:"name"`
 	PinLink  string  `json:"pinLink"`
-	PinImg   string  `json:"pinImg"`
+	PinImg   string  `json:"pinImg"`    // NEW: Image URL for the pin
 	Lon      float64 `json:"lon"`
 	Lat      float64 `json:"lat"`
 	Type     string  `json:"type"`
@@ -94,6 +67,7 @@ type Pin struct {
 	End      string  `json:"end,omitempty"`
 }
 
+// New GeoJSON Pin structure
 type GeoJsonPin struct {
 	Name     string  `json:"name"`
 	PinLink  string  `json:"pinLink"`
@@ -109,6 +83,7 @@ type GeoJsonPin struct {
 	End      string  `json:"end,omitempty"`
 }
 
+// GeoJSON Style configuration
 type GeoJsonStyle struct {
 	StrokeWidth float64 `json:"strokeWidth,omitempty"`
 	StrokeColor string  `json:"strokeColor,omitempty"`
@@ -120,17 +95,19 @@ type GeoJsonStyle struct {
 	LineJoin    string  `json:"lineJoin,omitempty"`
 }
 
+// Enhanced GeoJSON Data structure
 type GeoJsonData struct {
 	Type       string        `json:"type"`
 	Features   []interface{} `json:"features,omitempty"`
 	Geometry   interface{}   `json:"geometry,omitempty"`
 	Properties interface{}   `json:"properties,omitempty"`
+	// Enhanced properties
 	Subtype    string        `json:"subtype,omitempty"`
 	Title      string        `json:"title,omitempty"`
 	Info       string        `json:"info,omitempty"`
-	Fill       string        `json:"fill,omitempty"`
+	Fill       string        `json:"fill,omitempty"` // Color hex code or image URL
 	GeoJsonPin *GeoJsonPin   `json:"geojsonpin,omitempty"`
-	Img        string        `json:"img,omitempty"`
+	Img        string        `json:"img,omitempty"` // For popup modal
 	Style      *GeoJsonStyle `json:"style,omitempty"`
 }
 
@@ -170,7 +147,7 @@ type Location struct {
 	Events              []Pin             `json:"events"`
 	PSA                 []Pin             `json:"psa"`
 	Sublocations        *SublocationsData `json:"sublocations,omitempty"`
-	Geojson             *GeoJsonData      `json:"geojson,omitempty"`
+	Geojson             *GeoJsonData      `json:"geojson,omitempty"` // Changed to structured data
 	Hotzones            []Pin             `json:"hotzones,omitempty"`
 	Zoom                string            `json:"zoom"`
 	Results             []Pin             `json:"results,omitempty"`
@@ -184,50 +161,51 @@ type Chart struct {
 	ChartData  interface{} `json:"chart_data"`
 }
 
+// Add to Data Structs section
 type Reporting struct {
-	ID                  int       `json:"id"`
-	Name                string    `json:"name"`
-	Info                string    `json:"info"`
-	Type                string    `json:"type"`
-	CreatedBy           string    `json:"created_by"`
-	Coordinates         *GeoPoint `json:"coordinates"`
-	CreatedAt           string    `json:"created_at"`
-	ParentLocationID    string    `json:"parent_location_id"`
-	ParentSublocationID string    `json:"parent_sublocation_id,omitempty"`
+	ID                  int         `json:"id"`
+	Name                string      `json:"name"`
+	Info                string      `json:"info"`
+	Type                string      `json:"type"`
+	CreatedBy           string      `json:"created_by"`
+	Coordinates         *GeoPoint   `json:"coordinates"`
+	CreatedAt           string      `json:"created_at"`
+	ParentLocationID    string      `json:"parent_location_id"`
+	ParentSublocationID string      `json:"parent_sublocation_id,omitempty"`
 }
 
 type Mood struct {
-	ID                  int       `json:"id"`
-	Name                string    `json:"name"`
-	Info                string    `json:"info"`
-	Type                string    `json:"type"`
-	CreatedBy           string    `json:"created_by"`
-	Coordinates         *GeoPoint `json:"coordinates"`
-	CreatedAt           string    `json:"created_at"`
-	ParentLocationID    string    `json:"parent_location_id"`
-	ParentSublocationID string    `json:"parent_sublocation_id,omitempty"`
+	ID                  int         `json:"id"`
+	Name                string      `json:"name"`
+	Info                string      `json:"info"`
+	Type                string      `json:"type"`
+	CreatedBy           string      `json:"created_by"`
+	Coordinates         *GeoPoint   `json:"coordinates"`
+	CreatedAt           string      `json:"created_at"`
+	ParentLocationID    string      `json:"parent_location_id"`
+	ParentSublocationID string      `json:"parent_sublocation_id,omitempty"`
 }
 
 type Tag struct {
-	ID                  int       `json:"id"`
-	Item                string    `json:"item"`
-	Coordinates         *GeoPoint `json:"coordinates"`
-	CreatedBy           string    `json:"created_by"`
-	CreatedAt           string    `json:"created_at"`
-	ParentLocationID    string    `json:"parent_location_id"`
-	ParentSublocationID string    `json:"parent_sublocation_id,omitempty"`
-	Type                string    `json:"type"`
+	ID                  int         `json:"id"`
+	Item                string      `json:"item"`
+	Coordinates         *GeoPoint   `json:"coordinates"`
+	CreatedBy           string      `json:"created_by"`
+	CreatedAt           string      `json:"created_at"`
+	ParentLocationID    string      `json:"parent_location_id"`
+	ParentSublocationID string      `json:"parent_sublocation_id,omitempty"`
+	Type                string      `json:"type"`
 }
 
 type SublocationData struct {
-	ID               string    `json:"id"`
-	Name             string    `json:"name"`
-	Info             string    `json:"info"`
-	Coordinates      *GeoPoint `json:"coordinates"`
-	SvgPin           string    `json:"svgpin"`
-	ParentLocationID string    `json:"parent_location_id"`
-	Zoom             string    `json:"zoom"`
-	Type             string    `json:"type"`
+	ID                string    `json:"id"`
+	Name              string    `json:"name"`
+	Info              string    `json:"info"`
+	Coordinates       *GeoPoint `json:"coordinates"`
+	SvgPin            string    `json:"svgpin"`
+	ParentLocationID  string    `json:"parent_location_id"`
+	Zoom              string    `json:"zoom"`
+	Type              string    `json:"type"`
 }
 
 // ====================================================================================
@@ -243,24 +221,31 @@ func NewAppService(db *pgxpool.Pool) *AppService {
 }
 
 // Unified coordinate parsing function
+// Handles multiple formats:
+// 1. {"lat": "47.5798", "lon": "19.2474", "type": "Point"} - main coordinates
+// 2. {"coordinates": {"coordinates": [lon, lat]}} - nested pin format
+// 3. {"coordinates": [lon, lat]} - simple array format
+// 4. {"lat": 47.5798, "lon": 19.2474} - numeric format
 func parseAnyCoordinates(data interface{}) (lat float64, lon float64, err error) {
 	switch v := data.(type) {
 	case string:
+		// Parse JSON string
 		var coordMap map[string]interface{}
 		if err := json.Unmarshal([]byte(v), &coordMap); err != nil {
 			return 0, 0, fmt.Errorf("failed to parse coordinate string: %w", err)
 		}
 		return parseCoordinateMap(coordMap)
-
+	
 	case map[string]interface{}:
 		return parseCoordinateMap(v)
-
+	
 	default:
 		return 0, 0, fmt.Errorf("unsupported coordinate type: %T", data)
 	}
 }
 
 func parseCoordinateMap(coordMap map[string]interface{}) (lat float64, lon float64, err error) {
+	// Try direct lat/lon fields first (main coordinates format)
 	if latVal, hasLat := coordMap["lat"]; hasLat {
 		if lonVal, hasLon := coordMap["lon"]; hasLon {
 			lat = parseFloatValue(latVal)
@@ -271,6 +256,7 @@ func parseCoordinateMap(coordMap map[string]interface{}) (lat float64, lon float
 		}
 	}
 
+	// Try nested coordinates format: {"coordinates": {"coordinates": [lon, lat]}}
 	if coordsField, ok := coordMap["coordinates"].(map[string]interface{}); ok {
 		if coordsArray, ok := coordsField["coordinates"].([]interface{}); ok && len(coordsArray) >= 2 {
 			lon = parseFloatValue(coordsArray[0])
@@ -281,6 +267,7 @@ func parseCoordinateMap(coordMap map[string]interface{}) (lat float64, lon float
 		}
 	}
 
+	// Try simple array format: {"coordinates": [lon, lat]}
 	if coordsArray, ok := coordMap["coordinates"].([]interface{}); ok && len(coordsArray) >= 2 {
 		lon = parseFloatValue(coordsArray[0])
 		lat = parseFloatValue(coordsArray[1])
@@ -310,6 +297,7 @@ func parseFloatValue(val interface{}) float64 {
 	return 0
 }
 
+// Helper function to parse main location coordinates
 func parseMainCoordinates(coordinatesJSON string) (*GeoPoint, error) {
 	if coordinatesJSON == "" {
 		return nil, nil
@@ -333,6 +321,7 @@ func parseMainCoordinates(coordinatesJSON string) (*GeoPoint, error) {
 	}, nil
 }
 
+// Unified pin parsing function
 func parsePinArray(jsonStr string, pinType string) []Pin {
 	if jsonStr == "" {
 		return []Pin{}
@@ -340,7 +329,7 @@ func parsePinArray(jsonStr string, pinType string) []Pin {
 
 	var pins []Pin
 	var rawPins []map[string]interface{}
-
+	
 	if err := json.Unmarshal([]byte(jsonStr), &rawPins); err != nil {
 		log.Printf("Error parsing %s pins JSON: %v", pinType, err)
 		return []Pin{}
@@ -348,22 +337,25 @@ func parsePinArray(jsonStr string, pinType string) []Pin {
 
 	for idx, raw := range rawPins {
 		pin := Pin{}
-
+		
+		// Parse ID (NEW)
 		if id, ok := raw["id"].(string); ok {
 			pin.ID = id
 		}
-
+		
+		// Parse basic fields
 		if name, ok := raw["name"].(string); ok {
 			pin.Name = name
 		}
 		if pinLink, ok := raw["pinLink"].(string); ok {
 			pin.PinLink = pinLink
 		}
-
+		
+		// Parse PinImg (NEW)
 		if pinImg, ok := raw["pinImg"].(string); ok {
 			pin.PinImg = pinImg
 		}
-
+		
 		if pType, ok := raw["type"].(string); ok {
 			pin.Type = pType
 		}
@@ -389,6 +381,7 @@ func parsePinArray(jsonStr string, pinType string) []Pin {
 			pin.End = end
 		}
 
+		// Parse coordinates
 		var lat, lon float64
 		var coordErr error
 
@@ -419,6 +412,8 @@ func parsePinArray(jsonStr string, pinType string) []Pin {
 
 	return pins
 }
+
+
 
 func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 	var loc Location
@@ -470,6 +465,7 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 		loc.Zoom = zoom.String
 	}
 
+	// Parse GeoJSON with enhanced structure
 	if geojson.Valid && geojson.String != "" {
 		var geoJsonData GeoJsonData
 		if err := json.Unmarshal([]byte(geojson.String), &geoJsonData); err == nil {
@@ -481,6 +477,7 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 		_ = json.Unmarshal([]byte(boardsJSON.String), &loc.Boards)
 	}
 
+	// Parse main coordinates
 	if coordinatesJSON.Valid && coordinatesJSON.String != "" {
 		if parsedCoords, err := parseMainCoordinates(coordinatesJSON.String); err == nil {
 			loc.Coordinates = parsedCoords
@@ -490,6 +487,7 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 		}
 	}
 
+	// Parse all pin arrays using unified function
 	if landmarksJSON.Valid && landmarksJSON.String != "" {
 		loc.Landmarks = parsePinArray(landmarksJSON.String, "landmarks")
 		log.Printf("Parsed %d landmarks for %s", len(loc.Landmarks), loc.ID)
@@ -520,26 +518,29 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 		log.Printf("Parsed %d hotzone pins for %s", len(loc.Hotzones), loc.ID)
 	}
 
+	// Parse results array
 	if resultsJSON.Valid && resultsJSON.String != "" {
 		loc.Results = parsePinArray(resultsJSON.String, "results")
 		log.Printf("Parsed %d result pins for %s", len(loc.Results), loc.ID)
 	}
 
+	// Parse sublocations
 	if sublocationsJSON.Valid && sublocationsJSON.String != "" {
 		var sublocs SublocationsData
 		if err := json.Unmarshal([]byte(sublocationsJSON.String), &sublocs); err == nil {
+			// Coordinates for sublocations are already parsed correctly by the database function
 			if sublocs.CurrentSublocation != nil && sublocs.CurrentSublocation.Coordinates != nil {
-				log.Printf("Current sublocation %s coordinates: lat=%f, lon=%f",
+				log.Printf("Current sublocation %s coordinates: lat=%f, lon=%f", 
 					sublocs.CurrentSublocation.ID,
-					sublocs.CurrentSublocation.Coordinates.Lat,
+					sublocs.CurrentSublocation.Coordinates.Lat, 
 					sublocs.CurrentSublocation.Coordinates.Lon)
 			}
 			if sublocs.AllSublocations != nil {
 				for i := range sublocs.AllSublocations {
 					if sublocs.AllSublocations[i].Coordinates != nil {
-						log.Printf("Sublocation %s coordinates: lat=%f, lon=%f",
+						log.Printf("Sublocation %s coordinates: lat=%f, lon=%f", 
 							sublocs.AllSublocations[i].ID,
-							sublocs.AllSublocations[i].Coordinates.Lat,
+							sublocs.AllSublocations[i].Coordinates.Lat, 
 							sublocs.AllSublocations[i].Coordinates.Lon)
 					}
 				}
@@ -552,6 +553,7 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 }
 
 func (s *AppService) GetTopLocations(ctx context.Context, limit int) ([]Location, error) {
+	// Add validation
 	if limit <= 0 {
 		limit = 10
 	}
@@ -570,7 +572,7 @@ func (s *AppService) GetTopLocations(ctx context.Context, limit int) ([]Location
 		loc, err := s.rowToLocation(rows)
 		if err != nil {
 			log.Printf("Warning: failed to scan location row: %v", err)
-			continue
+			continue // Skip invalid rows instead of failing completely
 		}
 		locations = append(locations, loc)
 	}
@@ -631,9 +633,7 @@ func (s *AppService) GetChartsForLocation(ctx context.Context, locationID string
 	return charts, nil
 }
 
-// ====================================================================================
-// REPORTING FUNCTIONS
-// ====================================================================================
+// REPORTING AND MOODS FUNTIONS BEYOND HERE 
 
 func (s *AppService) CreateReporting(ctx context.Context, name, info, reportType, createdBy string, coordinates *GeoPoint, parentLocationID, parentSublocationID string) (Reporting, error) {
 	coordsJSON, err := json.Marshal(coordinates)
@@ -648,9 +648,9 @@ func (s *AppService) CreateReporting(ctx context.Context, name, info, reportType
 
 	err = s.db.QueryRow(ctx,
 		"SELECT * FROM create_reporting($1, $2, $3, $4, $5, $6, $7);",
-		name, info, reportType, createdBy, string(coordsJSON), parentLocationID,
+		name, info, reportType, createdBy, string(coordsJSON), parentLocationID, 
 		sql.NullString{String: parentSublocationID, Valid: parentSublocationID != ""},
-	).Scan(&reporting.ID, &reporting.Name, &reporting.Info, &reporting.Type,
+	).Scan(&reporting.ID, &reporting.Name, &reporting.Info, &reporting.Type, 
 		&reporting.CreatedBy, &coordsStr, &createdAt, &reporting.ParentLocationID, &sublocationID)
 
 	if err != nil {
@@ -688,7 +688,7 @@ func (s *AppService) GetReportingsByLocation(ctx context.Context, locationID str
 		var sublocationID sql.NullString
 		var createdAt sql.NullString
 
-		err := rows.Scan(&r.ID, &r.Name, &r.Info, &r.Type, &r.CreatedBy,
+		err := rows.Scan(&r.ID, &r.Name, &r.Info, &r.Type, &r.CreatedBy, 
 			&coordsStr, &createdAt, &r.ParentLocationID, &sublocationID)
 		if err != nil {
 			log.Printf("Warning: failed to scan reporting row: %v", err)
@@ -733,7 +733,7 @@ func (s *AppService) EditReporting(ctx context.Context, id int, userID, name, in
 	err := s.db.QueryRow(ctx,
 		"SELECT * FROM edit_reporting($1, $2, $3, $4, $5);",
 		id, userID, name, info, reportType,
-	).Scan(&r.ID, &r.Name, &r.Info, &r.Type, &r.CreatedBy,
+	).Scan(&r.ID, &r.Name, &r.Info, &r.Type, &r.CreatedBy, 
 		&coordsStr, &createdAt, &r.ParentLocationID, &sublocationID)
 
 	if err != nil {
@@ -757,10 +757,6 @@ func (s *AppService) EditReporting(ctx context.Context, id int, userID, name, in
 	return r, nil
 }
 
-// ====================================================================================
-// MOOD FUNCTIONS
-// ====================================================================================
-
 func (s *AppService) CreateMood(ctx context.Context, name, info, moodType, createdBy string, coordinates *GeoPoint, parentLocationID, parentSublocationID string) (Mood, error) {
 	coordsJSON, err := json.Marshal(coordinates)
 	if err != nil {
@@ -776,7 +772,7 @@ func (s *AppService) CreateMood(ctx context.Context, name, info, moodType, creat
 		"SELECT * FROM create_mood($1, $2, $3, $4, $5, $6, $7);",
 		name, info, moodType, createdBy, string(coordsJSON), parentLocationID,
 		sql.NullString{String: parentSublocationID, Valid: parentSublocationID != ""},
-	).Scan(&mood.ID, &mood.Name, &mood.Info, &mood.Type, &mood.CreatedBy,
+	).Scan(&mood.ID, &mood.Name, &mood.Info, &mood.Type, &mood.CreatedBy, 
 		&coordsStr, &createdAt, &mood.ParentLocationID, &sublocationID)
 
 	if err != nil {
@@ -850,9 +846,7 @@ func (s *AppService) DeleteMood(ctx context.Context, id int, userID string) (boo
 	return deleted, nil
 }
 
-// ====================================================================================
-// TAG FUNCTIONS
-// ====================================================================================
+// TAGS FUNCTIONS
 
 func (s *AppService) CreateTag(ctx context.Context, item, createdBy string, coordinates *GeoPoint, parentLocationID, parentSublocationID, tagType string) (Tag, error) {
 	coordsJSON, err := json.Marshal(coordinates)
@@ -869,7 +863,7 @@ func (s *AppService) CreateTag(ctx context.Context, item, createdBy string, coor
 		"SELECT * FROM create_tag($1, $2, $3, $4, $5, $6);",
 		item, string(coordsJSON), createdBy, parentLocationID,
 		sql.NullString{String: parentSublocationID, Valid: parentSublocationID != ""}, tagType,
-	).Scan(&tag.ID, &tag.Item, &coordsStr, &tag.CreatedBy,
+	).Scan(&tag.ID, &tag.Item, &coordsStr, &tag.CreatedBy, 
 		&createdAt, &tag.ParentLocationID, &sublocationID, &tag.Type)
 
 	if err != nil {
@@ -976,9 +970,8 @@ func (s *AppService) EditTag(ctx context.Context, id int, userID, item, tagType 
 	return t, nil
 }
 
-// ====================================================================================
-// PIN FUNCTIONS
-// ====================================================================================
+
+
 
 func (s *AppService) CreatePinForColumn(ctx context.Context, locationID, column string, pinData map[string]interface{}) (map[string]interface{}, error) {
 	pinDataJSON, err := json.Marshal(pinData)
@@ -1061,10 +1054,8 @@ func (s *AppService) GetPinsForColumn(ctx context.Context, locationID, column st
 	return pins, nil
 }
 
-// ====================================================================================
-// SUBLOCATION FUNCTIONS
-// ====================================================================================
 
+// ----------------------- SUBLOCAITONS /////////////////////////////////////// 
 func (s *AppService) CreateSublocation(ctx context.Context, id, name, info, svgPin, parentLocationID, zoom, sublType string, coordinates *GeoPoint) (SublocationData, error) {
 	coordsJSON, err := json.Marshal(coordinates)
 	if err != nil {
@@ -1077,14 +1068,14 @@ func (s *AppService) CreateSublocation(ctx context.Context, id, name, info, svgP
 
 	err = s.db.QueryRow(ctx,
 		"SELECT * FROM create_sublocation($1, $2, $3, $4, $5, $6, $7, $8);",
-		id, name,
-		sql.NullString{String: info, Valid: info != ""},
-		string(coordsJSON),
-		sql.NullString{String: svgPin, Valid: svgPin != ""},
+		id, name, 
+		sql.NullString{String: info, Valid: info != ""}, 
+		string(coordsJSON), 
+		sql.NullString{String: svgPin, Valid: svgPin != ""}, 
 		parentLocationID,
 		sql.NullString{String: zoom, Valid: zoom != ""},
 		sublType,
-	).Scan(&sublocation.ID, &sublocation.Name, &infoStr, &coordsStr,
+	).Scan(&sublocation.ID, &sublocation.Name, &infoStr, &coordsStr, 
 		&svgPinStr, &sublocation.ParentLocationID, &zoomStr, &sublocation.Type)
 
 	if err != nil {
@@ -1117,13 +1108,13 @@ func (s *AppService) GetSublocationsByLocation(ctx context.Context, parentLocati
 	}
 	defer rows.Close()
 
-	var sublocations []SublocationData = []SublocationData{}
+	var sublocations []SublocationData = []SublocationData{} // Initialize as empty slice instead of nil
 	for rows.Next() {
 		var subloc SublocationData
 		var coordsStr sql.NullString
 		var infoStr, svgPinStr, zoomStr sql.NullString
 
-		err := rows.Scan(&subloc.ID, &subloc.Name, &infoStr, &coordsStr,
+		err := rows.Scan(&subloc.ID, &subloc.Name, &infoStr, &coordsStr, 
 			&svgPinStr, &subloc.ParentLocationID, &zoomStr, &subloc.Type)
 		if err != nil {
 			log.Printf("Warning: failed to scan sublocation row: %v", err)
@@ -1166,12 +1157,12 @@ func (s *AppService) UpdateSublocation(ctx context.Context, id, name, info, svgP
 
 	err := s.db.QueryRow(ctx,
 		"SELECT * FROM update_sublocation($1, $2, $3, $4, $5, $6);",
-		id, name,
-		sql.NullString{String: info, Valid: info != ""},
-		sql.NullString{String: svgPin, Valid: svgPin != ""},
-		sql.NullString{String: zoom, Valid: zoom != ""},
+		id, name, 
+		sql.NullString{String: info, Valid: info != ""}, 
+		sql.NullString{String: svgPin, Valid: svgPin != ""}, 
+		sql.NullString{String: zoom, Valid: zoom != ""}, 
 		sublType,
-	).Scan(&subloc.ID, &subloc.Name, &infoStr, &coordsStr,
+	).Scan(&subloc.ID, &subloc.Name, &infoStr, &coordsStr, 
 		&svgPinStr, &subloc.ParentLocationID, &zoomStr, &subloc.Type)
 
 	if err != nil {
@@ -1205,6 +1196,7 @@ func (s *AppService) DeleteSublocation(ctx context.Context, id string) (bool, er
 	}
 	return deleted, nil
 }
+
 
 // ====================================================================================
 // User Logging and Rate Limiting Helpers
@@ -1247,26 +1239,16 @@ type GenericParams struct {
 	UserID string `json:"userid"`
 }
 
-type RpcResponse struct {
-	Success bool        `json:"success"`
-	Data    interface{} `json:"data,omitempty"`
-	Error   string      `json:"error,omitempty"`
-}
-
-func writeJSONResponse(w http.ResponseWriter, statusCode int, response RpcResponse) {
+func writeJSONResponse(w http.ResponseWriter, statusCode int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(data)
 }
 
 func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 	var req RpcRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONResponse(w, http.StatusBadRequest, RpcResponse{
-			Success: false,
-			Error:   "Invalid JSON request",
-		})
+		writeJSONResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "Invalid JSON request"})
 		return
 	}
 
@@ -1283,10 +1265,7 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Could not check user block status: %v", err)
 		}
 		if blocked {
-			writeJSONResponse(w, http.StatusTooManyRequests, RpcResponse{
-				Success: false,
-				Error:   "Rate limit exceeded",
-			})
+			writeJSONResponse(w, http.StatusTooManyRequests, map[string]interface{}{"success": false, "error": "Rate limit exceeded"})
 			return
 		}
 		logUserRequest(ctx, uid)
@@ -1317,7 +1296,17 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 		}
 		resultData, processingError = service.GetLocationByID(ctx, params.ID)
 
-	case "searchLocationsAdvanced":
+		{/* case "searchLocations":
+		var params struct {
+			Query string `json:"query"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil || params.Query == "" {
+			processingError = fmt.Errorf("missing or invalid 'query' parameter")
+			break
+		}
+		resultData, processingError = service.SearchLocations(ctx, params.Query)    DISABLED AS FORMER TO seachLocaionsAdvanced*/}
+		
+		case "searchLocationsAdvanced":
 		var params struct {
 			Query string `json:"query"`
 		}
@@ -1326,6 +1315,7 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		resultData, processingError = service.SearchLocations(ctx, params.Query)
+		
 
 	case "getChartsForLocation":
 		var params struct {
@@ -1337,6 +1327,7 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 		}
 		resultData, processingError = service.GetChartsForLocation(ctx, params.LocationID)
 
+// Add these cases to the handleRpcRequest switch statement
 	case "createReporting":
 		var params struct {
 			Name                string   `json:"name"`
@@ -1466,6 +1457,7 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 		}
 		resultData, processingError = service.EditTag(ctx, params.ID, uid, params.Item, params.Type)
 
+
 	case "createPinForColumn":
 		var params struct {
 			LocationID string                 `json:"locationId"`
@@ -1514,6 +1506,12 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 		}
 		resultData, processingError = service.GetPinsForColumn(ctx, params.LocationID, params.Column)
 
+
+
+
+
+// -------------------------------------SUBLOCATIONS ------------------------------------
+
 	case "createSublocation":
 		var params struct {
 			ID               string   `json:"id"`
@@ -1531,21 +1529,23 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 		}
 		resultData, processingError = service.CreateSublocation(ctx, params.ID, params.Name, params.Info, params.SvgPin, params.ParentLocationID, params.Zoom, params.Type, &params.Coordinates)
 
-	case "getSublocationsByLocation":
-		var params struct {
-			ParentLocationID string `json:"parentLocationId"`
-		}
-		if err := json.Unmarshal(req.Params, &params); err != nil || params.ParentLocationID == "" {
-			processingError = fmt.Errorf("missing or invalid 'parentLocationId' parameter")
-			break
-		}
-		resultData, processingError = service.GetSublocationsByLocation(ctx, params.ParentLocationID)
-
-		if sublocations, ok := resultData.([]SublocationData); ok {
-			if sublocations == nil {
-				resultData = []SublocationData{}
-			}
-		}
+// In your get_sublocations_by_location case in handleRpcRequest
+case "getSublocationsByLocation":
+    var params struct {
+        ParentLocationID string `json:"parentLocationId"`
+    }
+    if err := json.Unmarshal(req.Params, &params); err != nil || params.ParentLocationID == "" {
+        processingError = fmt.Errorf("missing or invalid 'parentLocationId' parameter")
+        break
+    }
+    resultData, processingError = service.GetSublocationsByLocation(ctx, params.ParentLocationID)
+    
+    // Ensure we always return an array, not nil
+    if sublocations, ok := resultData.([]SublocationData); ok {
+        if sublocations == nil {
+            resultData = []SublocationData{}
+        }
+    }
 
 	case "updateSublocation":
 		var params struct {
@@ -1571,50 +1571,19 @@ func handleRpcRequest(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		resultData, processingError = service.DeleteSublocation(ctx, params.ID)
+		// -------------------------- SUBLOCTIONS -------------------------------------------
 
+		
 	default:
 		processingError = fmt.Errorf("method not found: %s", req.Method)
 	}
 
 	if processingError != nil {
-		writeJSONResponse(w, http.StatusBadRequest, RpcResponse{
-			Success: false,
-			Error:   processingError.Error(),
-		})
+		writeJSONResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": processingError.Error()})
 		return
 	}
 
-	writeJSONResponse(w, http.StatusOK, RpcResponse{
-		Success: true,
-		Data:    resultData,
-	})
-}
-
-// ====================================================================================
-// Health Check Handler
-// ====================================================================================
-
-func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
-		"status": "healthy",
-		"server": "The-Go-Hello-Server",
-	})
-}
-
-// ====================================================================================
-// Router Setup
-// ====================================================================================
-
-func setupRouter() *http.ServeMux {
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("/health", healthCheckHandler)
-	mux.HandleFunc("/rpc", handleRpcRequest)
-
-	return mux
+	writeJSONResponse(w, http.StatusOK, map[string]interface{}{"success": true, "data": resultData})
 }
 
 // ====================================================================================
@@ -1624,8 +1593,26 @@ func setupRouter() *http.ServeMux {
 func Handler(w http.ResponseWriter, r *http.Request) {
 	initDB()
 
-	router := setupRouter()
-	corsMiddleware := NewCORSMiddleware(router)
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
 
-	corsMiddleware.ServeHTTP(w, r)
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	switch r.URL.Path {
+	case "/health":
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	case "/rpc":
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handleRpcRequest(w, r)
+	default:
+		http.NotFound(w, r)
+	}
 }
