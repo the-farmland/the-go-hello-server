@@ -131,243 +131,6 @@ create index IF not exists idx_locations_search on public.locations using gin (
 
 
 
--- Updated get_location_by_id function with results column
-CREATE OR REPLACE FUNCTION public.get_location_by_id(location_id text)
-RETURNS TABLE(
-    id text,
-    name text,
-    country text,
-    state text,
-    description text,
-    svg_link text,
-    rating numeric,
-    map_main_image text,
-    map_cover_image text,
-    main_background_image text,
-    map_full_address text,
-    map_png_link text,
-    boards jsonb,
-    coordinates jsonb,
-    landmarks jsonb,
-    parent_location_id text,
-    business jsonb,
-    hospitality jsonb,
-    events jsonb,
-    psa jsonb,
-    sublocations jsonb,
-    geojson text,
-    hotzones jsonb,
-    zoom text,
-    results jsonb
-)
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    is_sublocation boolean := false;
-    parent_id text;
-    child_id text;
-BEGIN
-    -- Check if the location_id contains underscore (sublocation format)
-    IF position('_' in location_id) > 0 THEN
-        is_sublocation := true;
-        parent_id := split_part(location_id, '_', 1);
-        child_id := split_part(location_id, '_', 2);
-    END IF;
-
-    IF is_sublocation THEN
-        -- Return parent location data with sublocation info
-        RETURN QUERY
-        SELECT 
-            l.id,
-            COALESCE(s.name, l.name) as name,
-            l.country,
-            l.state,
-            COALESCE(s.info, l.description) as description,
-            l.svg_link,
-            l.rating,
-            l.map_main_image,
-            l.map_cover_image,
-            l.main_background_image,
-            l.map_full_address,
-            l.map_png_link,
-            l.boards,
-            COALESCE(s.coordinates, l.coordinates) as coordinates,
-            l.landmarks,
-            l.parent_location_id,
-            l.business,
-            l.hospitality,
-            l.events,
-            l.psa,
-            jsonb_build_object(
-                'current_sublocation', jsonb_build_object(
-                    'id', s.id,
-                    'name', s.name,
-                    'info', s.info,
-                    'coordinates', s.coordinates,
-                    'svgpin', s.svgpin,
-                    'zoom', s.zoom
-                ),
-                'all_sublocations', (
-                    SELECT jsonb_agg(
-                        jsonb_build_object(
-                            'id', sub.id,
-                            'name', sub.name,
-                            'info', sub.info,
-                            'coordinates', sub.coordinates,
-                            'svgpin', sub.svgpin,
-                            'zoom', sub.zoom
-                        )
-                    )
-                    FROM sublocations sub 
-                    WHERE sub.parent_location_id = l.id
-                )
-            ) as sublocations,
-            l.geojson,
-            l.hotzones,
-            COALESCE(s.zoom, l.zoom) as zoom,
-            l.results
-        FROM locations l
-        LEFT JOIN sublocations s ON s.id = child_id AND s.parent_location_id = parent_id
-        WHERE l.id = parent_id;
-    ELSE
-        -- Return regular location with all sublocations
-        RETURN QUERY
-        SELECT 
-            l.id,
-            l.name,
-            l.country,
-            l.state,
-            l.description,
-            l.svg_link,
-            l.rating,
-            l.map_main_image,
-            l.map_cover_image,
-            l.main_background_image,
-            l.map_full_address,
-            l.map_png_link,
-            l.boards,
-            l.coordinates,
-            l.landmarks,
-            l.parent_location_id,
-            l.business,
-            l.hospitality,
-            l.events,
-            l.psa,
-            CASE 
-                WHEN EXISTS(SELECT 1 FROM sublocations WHERE sublocations.parent_location_id = l.id) THEN
-                    jsonb_build_object(
-                        'all_sublocations', (
-                            SELECT jsonb_agg(
-                                jsonb_build_object(
-                                    'id', sub.id,
-                                    'name', sub.name,
-                                    'info', sub.info,
-                                    'coordinates', sub.coordinates,
-                                    'svgpin', sub.svgpin,
-                                    'zoom', sub.zoom
-                                )
-                            )
-                            FROM sublocations sub 
-                            WHERE sub.parent_location_id = l.id
-                        )
-                    )
-                ELSE NULL
-            END as sublocations,
-            l.geojson,
-            l.hotzones,
-            l.zoom,
-            l.results
-        FROM locations l
-        WHERE l.id = location_id;
-    END IF;
-END;
-$$;
-
-
--- Updated get_top_locations function with results column
-CREATE OR REPLACE FUNCTION public.get_top_locations(limit_count integer)
-RETURNS TABLE(
-    id text,
-    name text,
-    country text,
-    state text,
-    description text,
-    svg_link text,
-    rating numeric,
-    map_main_image text,
-    map_cover_image text,
-    main_background_image text,
-    map_full_address text,
-    map_png_link text,
-    boards jsonb,
-    coordinates jsonb,
-    landmarks jsonb,
-    parent_location_id text,
-    business jsonb,
-    hospitality jsonb,
-    events jsonb,
-    psa jsonb,
-    sublocations jsonb,
-    geojson text,
-    hotzones jsonb,
-    zoom text,
-    results jsonb
-)
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    RETURN QUERY
-    SELECT 
-        l.id,
-        l.name,
-        l.country,
-        l.state,
-        l.description,
-        l.svg_link,
-        l.rating,
-        l.map_main_image,
-        l.map_cover_image,
-        l.main_background_image,
-        l.map_full_address,
-        l.map_png_link,
-        l.boards,
-        l.coordinates,
-        l.landmarks,
-        l.parent_location_id,
-        l.business,
-        l.hospitality,
-        l.events,
-        l.psa,
-        CASE 
-            WHEN EXISTS(SELECT 1 FROM sublocations WHERE sublocations.parent_location_id = l.id) THEN
-                jsonb_build_object(
-                    'all_sublocations', (
-                        SELECT jsonb_agg(
-                            jsonb_build_object(
-                                'id', sub.id,
-                                'name', sub.name,
-                                'info', sub.info,
-                                'coordinates', sub.coordinates,
-                                'svgpin', sub.svgpin,
-                                'zoom', sub.zoom
-                            )
-                        )
-                        FROM sublocations sub 
-                        WHERE sub.parent_location_id = l.id
-                    )
-                )
-            ELSE NULL
-        END as sublocations,
-        l.geojson,
-        l.hotzones,
-        l.zoom,
-        l.results
-    FROM locations l
-    WHERE l.rating IS NOT NULL
-    ORDER BY l.rating DESC NULLS LAST
-    LIMIT limit_count;
-END;
-$$;
 
 
 -- Replace the existing search_locations with this enhanced version
@@ -449,7 +212,288 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- 6. Update search_locations to use id instead of pinLink
+-- Add new columns to locations table
+ALTER TABLE public.locations ADD COLUMN IF NOT EXISTS drivers jsonb NULL;
+ALTER TABLE public.locations ADD COLUMN IF NOT EXISTS walker jsonb NULL;
+ALTER TABLE public.locations ADD COLUMN IF NOT EXISTS transit jsonb NULL;
+ALTER TABLE public.locations ADD COLUMN IF NOT EXISTS utilities jsonb NULL;
+ALTER TABLE public.locations ADD COLUMN IF NOT EXISTS manmade jsonb NULL;
+ALTER TABLE public.locations ADD COLUMN IF NOT EXISTS natural jsonb NULL;
+ALTER TABLE public.locations ADD COLUMN IF NOT EXISTS municipal jsonb NULL;
+
+-- Update get_location_by_id function
+CREATE OR REPLACE FUNCTION public.get_location_by_id(location_id text)
+RETURNS TABLE(
+    id text,
+    name text,
+    country text,
+    state text,
+    description text,
+    svg_link text,
+    rating numeric,
+    map_main_image text,
+    map_cover_image text,
+    main_background_image text,
+    map_full_address text,
+    map_png_link text,
+    boards jsonb,
+    coordinates jsonb,
+    landmarks jsonb,
+    parent_location_id text,
+    business jsonb,
+    hospitality jsonb,
+    events jsonb,
+    psa jsonb,
+    sublocations jsonb,
+    geojson text,
+    hotzones jsonb,
+    zoom text,
+    results jsonb,
+    drivers jsonb,
+    walker jsonb,
+    transit jsonb,
+    utilities jsonb,
+    manmade jsonb,
+    natural jsonb,
+    municipal jsonb
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    is_sublocation boolean := false;
+    parent_id text;
+    child_id text;
+BEGIN
+    -- Check if the location_id contains underscore (sublocation format)
+    IF position('_' in location_id) > 0 THEN
+        is_sublocation := true;
+        parent_id := split_part(location_id, '_', 1);
+        child_id := split_part(location_id, '_', 2);
+    END IF;
+
+    IF is_sublocation THEN
+        -- Return parent location data with sublocation info
+        RETURN QUERY
+        SELECT 
+            l.id,
+            COALESCE(s.name, l.name) as name,
+            l.country,
+            l.state,
+            COALESCE(s.info, l.description) as description,
+            l.svg_link,
+            l.rating,
+            l.map_main_image,
+            l.map_cover_image,
+            l.main_background_image,
+            l.map_full_address,
+            l.map_png_link,
+            l.boards,
+            COALESCE(s.coordinates, l.coordinates) as coordinates,
+            l.landmarks,
+            l.parent_location_id,
+            l.business,
+            l.hospitality,
+            l.events,
+            l.psa,
+            jsonb_build_object(
+                'current_sublocation', jsonb_build_object(
+                    'id', s.id,
+                    'name', s.name,
+                    'info', s.info,
+                    'coordinates', s.coordinates,
+                    'svgpin', s.svgpin,
+                    'zoom', s.zoom
+                ),
+                'all_sublocations', (
+                    SELECT jsonb_agg(
+                        jsonb_build_object(
+                            'id', sub.id,
+                            'name', sub.name,
+                            'info', sub.info,
+                            'coordinates', sub.coordinates,
+                            'svgpin', sub.svgpin,
+                            'zoom', sub.zoom
+                        )
+                    )
+                    FROM sublocations sub 
+                    WHERE sub.parent_location_id = l.id
+                )
+            ) as sublocations,
+            l.geojson,
+            l.hotzones,
+            COALESCE(s.zoom, l.zoom) as zoom,
+            l.results,
+            l.drivers,
+            l.walker,
+            l.transit,
+            l.utilities,
+            l.manmade,
+            l.natural,
+            l.municipal
+        FROM locations l
+        LEFT JOIN sublocations s ON s.id = child_id AND s.parent_location_id = parent_id
+        WHERE l.id = parent_id;
+    ELSE
+        -- Return regular location with all sublocations
+        RETURN QUERY
+        SELECT 
+            l.id,
+            l.name,
+            l.country,
+            l.state,
+            l.description,
+            l.svg_link,
+            l.rating,
+            l.map_main_image,
+            l.map_cover_image,
+            l.main_background_image,
+            l.map_full_address,
+            l.map_png_link,
+            l.boards,
+            l.coordinates,
+            l.landmarks,
+            l.parent_location_id,
+            l.business,
+            l.hospitality,
+            l.events,
+            l.psa,
+            CASE 
+                WHEN EXISTS(SELECT 1 FROM sublocations WHERE sublocations.parent_location_id = l.id) THEN
+                    jsonb_build_object(
+                        'all_sublocations', (
+                            SELECT jsonb_agg(
+                                jsonb_build_object(
+                                    'id', sub.id,
+                                    'name', sub.name,
+                                    'info', sub.info,
+                                    'coordinates', sub.coordinates,
+                                    'svgpin', sub.svgpin,
+                                    'zoom', sub.zoom
+                                )
+                            )
+                            FROM sublocations sub 
+                            WHERE sub.parent_location_id = l.id
+                        )
+                    )
+                ELSE NULL
+            END as sublocations,
+            l.geojson,
+            l.hotzones,
+            l.zoom,
+            l.results,
+            l.drivers,
+            l.walker,
+            l.transit,
+            l.utilities,
+            l.manmade,
+            l.natural,
+            l.municipal
+        FROM locations l
+        WHERE l.id = location_id;
+    END IF;
+END;
+$$;
+
+-- Update get_top_locations function
+CREATE OR REPLACE FUNCTION public.get_top_locations(limit_count integer)
+RETURNS TABLE(
+    id text,
+    name text,
+    country text,
+    state text,
+    description text,
+    svg_link text,
+    rating numeric,
+    map_main_image text,
+    map_cover_image text,
+    main_background_image text,
+    map_full_address text,
+    map_png_link text,
+    boards jsonb,
+    coordinates jsonb,
+    landmarks jsonb,
+    parent_location_id text,
+    business jsonb,
+    hospitality jsonb,
+    events jsonb,
+    psa jsonb,
+    sublocations jsonb,
+    geojson text,
+    hotzones jsonb,
+    zoom text,
+    results jsonb,
+    drivers jsonb,
+    walker jsonb,
+    transit jsonb,
+    utilities jsonb,
+    manmade jsonb,
+    natural jsonb,
+    municipal jsonb
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        l.id,
+        l.name,
+        l.country,
+        l.state,
+        l.description,
+        l.svg_link,
+        l.rating,
+        l.map_main_image,
+        l.map_cover_image,
+        l.main_background_image,
+        l.map_full_address,
+        l.map_png_link,
+        l.boards,
+        l.coordinates,
+        l.landmarks,
+        l.parent_location_id,
+        l.business,
+        l.hospitality,
+        l.events,
+        l.psa,
+        CASE 
+            WHEN EXISTS(SELECT 1 FROM sublocations WHERE sublocations.parent_location_id = l.id) THEN
+                jsonb_build_object(
+                    'all_sublocations', (
+                        SELECT jsonb_agg(
+                            jsonb_build_object(
+                                'id', sub.id,
+                                'name', sub.name,
+                                'info', sub.info,
+                                'coordinates', sub.coordinates,
+                                'svgpin', sub.svgpin,
+                                'zoom', sub.zoom
+                            )
+                        )
+                        FROM sublocations sub 
+                        WHERE sub.parent_location_id = l.id
+                    )
+                )
+            ELSE NULL
+        END as sublocations,
+        l.geojson,
+        l.hotzones,
+        l.zoom,
+        l.results,
+        l.drivers,
+        l.walker,
+        l.transit,
+        l.utilities,
+        l.manmade,
+        l.natural,
+        l.municipal
+    FROM locations l
+    WHERE l.rating IS NOT NULL
+    ORDER BY l.rating DESC NULLS LAST
+    LIMIT limit_count;
+END;
+$$;
+
+-- Update search_locations function
 CREATE OR REPLACE FUNCTION public.search_locations(search_query text)
 RETURNS TABLE(
     id text,
@@ -476,7 +520,14 @@ RETURNS TABLE(
     geojson text,
     hotzones jsonb,
     zoom text,
-    results jsonb
+    results jsonb,
+    drivers jsonb,
+    walker jsonb,
+    transit jsonb,
+    utilities jsonb,
+    manmade jsonb,
+    natural jsonb,
+    municipal jsonb
 )
 LANGUAGE plpgsql
 AS $$
@@ -527,6 +578,48 @@ BEGIN
     SELECT l.id, 'results', p.idx, p.pin ->> 'name', p.pin ->> 'id'
     FROM locations l
     CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.results, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
+    WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
+       OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
+  UNION ALL
+    SELECT l.id, 'drivers', p.idx, p.pin ->> 'name', p.pin ->> 'id'
+    FROM locations l
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.drivers, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
+    WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
+       OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
+  UNION ALL
+    SELECT l.id, 'walker', p.idx, p.pin ->> 'name', p.pin ->> 'id'
+    FROM locations l
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.walker, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
+    WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
+       OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
+  UNION ALL
+    SELECT l.id, 'transit', p.idx, p.pin ->> 'name', p.pin ->> 'id'
+    FROM locations l
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.transit, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
+    WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
+       OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
+  UNION ALL
+    SELECT l.id, 'utilities', p.idx, p.pin ->> 'name', p.pin ->> 'id'
+    FROM locations l
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.utilities, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
+    WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
+       OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
+  UNION ALL
+    SELECT l.id, 'manmade', p.idx, p.pin ->> 'name', p.pin ->> 'id'
+    FROM locations l
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.manmade, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
+    WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
+       OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
+  UNION ALL
+    SELECT l.id, 'natural', p.idx, p.pin ->> 'name', p.pin ->> 'id'
+    FROM locations l
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.natural, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
+    WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
+       OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
+  UNION ALL
+    SELECT l.id, 'municipal', p.idx, p.pin ->> 'name', p.pin ->> 'id'
+    FROM locations l
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.municipal, '[]'::jsonb)) WITH ORDINALITY AS p(pin, idx)
     WHERE (p.pin ->> 'name') ILIKE '%' || search_query || '%'
        OR (p.pin ->> 'info') ILIKE '%' || search_query || '%'
   ),
@@ -606,7 +699,14 @@ BEGIN
           FROM sub_match sm
           WHERE sm.location_id = l.id
         ), '[]'::jsonb
-      ) as results
+      ) as results,
+      l.drivers,
+      l.walker,
+      l.transit,
+      l.utilities,
+      l.manmade,
+      l.natural,
+      l.municipal
   FROM locations l
   WHERE 
        l.name ILIKE '%' || search_query || '%'
@@ -618,7 +718,6 @@ BEGIN
   ORDER BY l.rating DESC NULLS LAST, l.name ASC;
 END;
 $$;
-
 
 
 -- Create moods table
