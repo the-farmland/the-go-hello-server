@@ -212,6 +212,29 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION get_pins_for_column(location_id text, column_name text)
+RETURNS jsonb AS $$
+DECLARE
+  valid_columns text[] := ARRAY['landmarks', 'business', 'hospitality', 'events', 'psa', 'hotzones', 'results', 'drivers', 'walker', 'transit', 'utilities', 'manmade', 'natural', 'municipal'];
+  result jsonb;
+BEGIN
+  -- Validate column name
+  IF NOT column_name = ANY(valid_columns) THEN
+    RAISE EXCEPTION 'Invalid column name. Must be one of: %', array_to_string(valid_columns, ', ');
+  END IF;
+
+  -- Dynamically get the pins from the specified column
+  EXECUTE format('SELECT COALESCE(%I, ''[]''::jsonb) FROM locations WHERE id = %L', column_name, location_id)
+  INTO result;
+
+  RETURN COALESCE(result, '[]'::jsonb);
+END;
+$$ LANGUAGE plpgsql;
+
+
+
+
+
 -- Add new columns to locations table
 ALTER TABLE public.locations ADD COLUMN IF NOT EXISTS drivers jsonb NULL;
 ALTER TABLE public.locations ADD COLUMN IF NOT EXISTS walker jsonb NULL;
