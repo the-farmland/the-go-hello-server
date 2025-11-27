@@ -49,21 +49,30 @@ type GeoPoint struct {
 	Lat  float64 `json:"lat"`
 }
 
+type Product struct {
+	ID    string   `json:"id"`
+	Type  string   `json:"type"`
+	Name  string   `json:"name"`
+	Price string   `json:"price"`
+	Tags  []string `json:"tags"`
+}
+
 type Pin struct {
-	ID       string  `json:"id"`        // NEW: Unique identifier for the pin
-	Name     string  `json:"name"`
-	PinLink  string  `json:"pinLink"`
-	PinImg   string  `json:"pinImg"`    // NEW: Image URL for the pin
-	Lon      float64 `json:"lon"`
-	Lat      float64 `json:"lat"`
-	Type     string  `json:"type"`
-	Info     string  `json:"info,omitempty"`
-	Img      string  `json:"img,omitempty"`
-	URL      string  `json:"url,omitempty"`
-	Position string  `json:"position,omitempty"`
-	Team     string  `json:"team,omitempty"`
-	Number   string  `json:"number,omitempty"`
-	End      string  `json:"end,omitempty"`
+	ID       string    `json:"id"`        // NEW: Unique identifier for the pin
+	Name     string    `json:"name"`
+	PinLink  string    `json:"pinLink"`
+	PinImg   string    `json:"pinImg"`    // NEW: Image URL for the pin
+	Lon      float64   `json:"lon"`
+	Lat      float64   `json:"lat"`
+	Type     string    `json:"type"`
+	Info     string    `json:"info,omitempty"`
+	Img      string    `json:"img,omitempty"`
+	URL      string    `json:"url,omitempty"`
+	Position string    `json:"position,omitempty"`
+	Team     string    `json:"team,omitempty"`
+	Number   string    `json:"number,omitempty"`
+	End      string    `json:"end,omitempty"`
+	Products []Product `json:"products,omitempty"`
 }
 
 // New GeoJSON Pin structure
@@ -157,6 +166,7 @@ type Location struct {
 	Manmade             []Pin             `json:"manmade,omitempty"`
 	Natural             []Pin             `json:"natural,omitempty"`
 	Municipal           []Pin             `json:"municipal,omitempty"`
+	FoodAndDrink        []Pin             `json:"food_and_drink,omitempty"`
 }
 
 type Chart struct {
@@ -387,6 +397,37 @@ func parsePinArray(jsonStr string, pinType string) []Pin {
 			pin.End = end
 		}
 
+		// Parse products
+		if productsData, ok := raw["products"].([]interface{}); ok {
+			for _, prodItem := range productsData {
+				if prodMap, ok := prodItem.(map[string]interface{}); ok {
+					prod := Product{
+						Tags: []string{},
+					}
+					if id, ok := prodMap["id"].(string); ok {
+						prod.ID = id
+					}
+					if pType, ok := prodMap["type"].(string); ok {
+						prod.Type = pType
+					}
+					if name, ok := prodMap["name"].(string); ok {
+						prod.Name = name
+					}
+					if price, ok := prodMap["price"].(string); ok {
+						prod.Price = price
+					}
+					if tagsArr, ok := prodMap["tags"].([]interface{}); ok {
+						for _, tag := range tagsArr {
+							if tagStr, ok := tag.(string); ok {
+								prod.Tags = append(prod.Tags, tagStr)
+							}
+						}
+					}
+					pin.Products = append(pin.Products, prod)
+				}
+			}
+		}
+
 		// Parse coordinates
 		var lat, lon float64
 		var coordErr error
@@ -427,7 +468,7 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 	var state, svgLink, mapMainImage, mapCoverImage, mainBgImage, mapFullAddress, mapPngLink, parentLocationID, geojson, zoom sql.NullString
 	var rating sql.NullFloat64
 	var boardsJSON, coordinatesJSON, landmarksJSON, businessJSON, hospitalityJSON, eventsJSON, psaJSON, sublocationsJSON, hotzonesJSON, resultsJSON sql.NullString
-	var driversJSON, walkerJSON, transitJSON, utilitiesJSON, manmadeJSON, naturalJSON, municipalJSON sql.NullString
+	var driversJSON, walkerJSON, transitJSON, utilitiesJSON, manmadeJSON, naturalJSON, municipalJSON, foodAndDrinkJSON sql.NullString
 
 	err := row.Scan(
 		&loc.ID, &loc.Name, &loc.Country, &state, &loc.Description,
@@ -437,6 +478,7 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 		&parentLocationID, &businessJSON, &hospitalityJSON, &eventsJSON, &psaJSON,
 		&sublocationsJSON, &geojson, &hotzonesJSON, &zoom, &resultsJSON,
 		&driversJSON, &walkerJSON, &transitJSON, &utilitiesJSON, &manmadeJSON, &naturalJSON, &municipalJSON,
+		&foodAndDrinkJSON,
 	)
 	if err != nil {
 		return Location{}, err
@@ -566,6 +608,11 @@ func (s *AppService) rowToLocation(row pgx.Row) (Location, error) {
 	if municipalJSON.Valid && municipalJSON.String != "" {
 		loc.Municipal = parsePinArray(municipalJSON.String, "municipal")
 		log.Printf("Parsed %d municipal pins for %s", len(loc.Municipal), loc.ID)
+	}
+
+	if foodAndDrinkJSON.Valid && foodAndDrinkJSON.String != "" {
+		loc.FoodAndDrink = parsePinArray(foodAndDrinkJSON.String, "food_and_drink")
+		log.Printf("Parsed %d food and drink pins for %s", len(loc.FoodAndDrink), loc.ID)
 	}
 
 	// Parse sublocations
